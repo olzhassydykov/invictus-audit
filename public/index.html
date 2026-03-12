@@ -5,367 +5,326 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Invictus GO — Аудит продаж</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#0f0f1a; color:#e0e0e0; min-height:100vh; }
 
-  .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 20px 30px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2a2a4a; }
-  .logo { font-size: 22px; font-weight: 700; color: #fff; }
-  .logo span { color: #6c63ff; }
-  .status-dot { width: 10px; height: 10px; background: #00d4aa; border-radius: 50%; display: inline-block; margin-right: 8px; box-shadow: 0 0 8px #00d4aa; animation: pulse 2s infinite; }
-  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+.header { background:linear-gradient(135deg,#1a1a2e,#16213e); padding:16px 28px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #2a2a4a; }
+.logo { font-size:20px; font-weight:700; color:#fff; }
+.logo span { color:#6c63ff; }
+.dot { width:8px; height:8px; background:#00d4aa; border-radius:50%; display:inline-block; margin-right:6px; box-shadow:0 0 8px #00d4aa; animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
 
-  .main { padding: 24px 30px; max-width: 1400px; margin: 0 auto; }
+.main { padding:20px 28px; max-width:1600px; margin:0 auto; }
 
-  .tabs { display: flex; gap: 4px; background: #1a1a2e; padding: 4px; border-radius: 12px; border: 1px solid #2a2a4a; margin-bottom: 24px; width: fit-content; }
-  .tab { padding: 10px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; background: transparent; color: #6060a0; transition: all 0.2s; }
-  .tab.active { background: #6c63ff; color: #fff; }
+.tabs { display:flex; gap:4px; background:#1a1a2e; padding:4px; border-radius:10px; border:1px solid #2a2a4a; margin-bottom:20px; width:fit-content; }
+.tab { padding:9px 22px; border:none; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; background:transparent; color:#6060a0; transition:all .2s; }
+.tab.active { background:#6c63ff; color:#fff; }
 
-  .controls { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; align-items: center; }
-  .btn { padding: 11px 22px; border: none; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s; }
-  .btn-primary { background: linear-gradient(135deg, #6c63ff, #5a52d5); color: #fff; }
-  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(108,99,255,0.4); }
-  .btn-success { background: linear-gradient(135deg, #00d4aa, #00b894); color: #fff; }
-  .btn-success:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,212,170,0.4); }
-  .btn-secondary { background: #1e1e35; color: #a0a0c0; border: 1px solid #2a2a4a; }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+.controls { display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap; align-items:center; }
+.btn { padding:10px 20px; border:none; border-radius:9px; cursor:pointer; font-size:13px; font-weight:600; transition:all .2s; }
+.btn-primary { background:linear-gradient(135deg,#6c63ff,#5a52d5); color:#fff; }
+.btn-primary:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(108,99,255,.4); }
+.btn-success { background:linear-gradient(135deg,#00d4aa,#00b894); color:#fff; }
+.btn-success:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(0,212,170,.4); }
+.btn:disabled { opacity:.5; cursor:not-allowed; transform:none!important; }
+input[type="date"] { background:#1e1e35; border:1px solid #2a2a4a; color:#e0e0e0; padding:10px 14px; border-radius:9px; font-size:13px; }
+.period-selector { display:flex; gap:3px; background:#1e1e35; padding:3px; border-radius:9px; border:1px solid #2a2a4a; }
+.period-btn { padding:7px 16px; border:none; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; background:transparent; color:#a0a0c0; transition:all .2s; }
+.period-btn.active { background:#6c63ff; color:#fff; }
 
-  input[type="date"] { background: #1e1e35; border: 1px solid #2a2a4a; color: #e0e0e0; padding: 11px 16px; border-radius: 10px; font-size: 14px; }
-  .period-selector { display: flex; gap: 4px; background: #1e1e35; padding: 4px; border-radius: 10px; border: 1px solid #2a2a4a; }
-  .period-btn { padding: 7px 18px; border: none; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600; background: transparent; color: #a0a0c0; transition: all 0.2s; }
-  .period-btn.active { background: #6c63ff; color: #fff; }
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:20px; }
+.stat-card { background:#1a1a2e; border:1px solid #2a2a4a; border-radius:12px; padding:16px; }
+.stat-label { font-size:10px; color:#6060a0; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; }
+.stat-value { font-size:28px; font-weight:700; color:#fff; }
+.stat-card.green .stat-value { color:#00d4aa; }
+.stat-card.yellow .stat-value { color:#ffd600; }
+.stat-card.red .stat-value { color:#ff4d6d; }
+.stat-card.purple .stat-value { color:#6c63ff; }
 
-  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
-  .stat-card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 14px; padding: 18px; }
-  .stat-label { font-size: 11px; color: #6060a0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-  .stat-value { font-size: 30px; font-weight: 700; color: #fff; }
-  .stat-sub { font-size: 11px; color: #6060a0; margin-top: 4px; }
-  .stat-card.green .stat-value { color: #00d4aa; }
-  .stat-card.yellow .stat-value { color: #ffd600; }
-  .stat-card.red .stat-value { color: #ff4d6d; }
-  .stat-card.purple .stat-value { color: #6c63ff; }
+/* ── MANAGER TABLE ─────────────────────────────────── */
+.table-wrap { overflow-x:auto; border-radius:12px; border:1px solid #2a2a4a; margin-bottom:20px; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+thead tr { background:#1a1a2e; }
+th { padding:12px 14px; text-align:left; font-size:11px; font-weight:700; color:#a0a0c0; text-transform:uppercase; letter-spacing:.8px; border-bottom:2px solid #6c63ff; white-space:nowrap; }
+th.center, td.center { text-align:center; }
+tbody tr { border-bottom:1px solid #1e1e35; transition:background .15s; }
+tbody tr:hover { background:#1a1a2e; }
+tbody tr:last-child { border-bottom:none; }
+td { padding:11px 14px; color:#e0e0e0; vertical-align:middle; }
+.rank { font-weight:700; color:#6060a0; font-size:12px; }
+.manager-name { font-weight:700; color:#fff; font-size:14px; }
+.score-cell { font-size:18px; font-weight:800; }
+.score-high { color:#00d4aa; }
+.score-mid  { color:#ffd600; }
+.score-low  { color:#ff4d6d; }
+.result-badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; white-space:nowrap; }
+.rb-green  { background:#00d4aa1a; color:#00d4aa; }
+.rb-red    { background:#ff4d6d1a; color:#ff4d6d; }
+.rb-yellow { background:#ffd6001a; color:#ffd600; }
+.conv-pct  { font-size:13px; font-weight:700; color:#6c63ff; }
+.error-tag { display:inline-block; background:#ff4d6d12; border:1px solid #ff4d6d2a; color:#ff8099; padding:2px 8px; border-radius:5px; font-size:11px; margin:2px 2px 2px 0; }
+.str-tag   { display:inline-block; background:#00d4aa12; border:1px solid #00d4aa2a; color:#00d4aa; padding:2px 8px; border-radius:5px; font-size:11px; margin:2px 2px 2px 0; }
+.rec-text  { font-size:12px; color:#a0a0c0; line-height:1.5; }
+.progress-bar { background:#0f0f1a; border-radius:4px; height:5px; margin-top:5px; overflow:hidden; min-width:60px; }
+.progress-fill { height:100%; border-radius:4px; background:linear-gradient(90deg,#6c63ff,#00d4aa); }
 
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
-  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+/* Conv cards */
+.card { background:#1a1a2e; border:1px solid #2a2a4a; border-radius:12px; padding:18px; margin-bottom:14px; }
+.card-title { font-size:14px; font-weight:600; color:#fff; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; }
+.conv-row { padding:12px; border-radius:8px; background:#0f0f1a; margin-bottom:7px; display:flex; justify-content:space-between; align-items:center; }
+.conv-name { font-weight:600; font-size:13px; }
+.conv-meta { font-size:11px; color:#6060a0; margin-top:2px; }
+.tag { padding:3px 9px; border-radius:20px; font-size:11px; font-weight:500; }
+.tag-green { background:#00d4aa1a; color:#00d4aa; }
+.tag-red   { background:#ff4d6d1a; color:#ff4d6d; }
+.tag-yellow{ background:#ffd6001a; color:#ffd600; }
+.tag-blue  { background:#6c63ff1a; color:#6c63ff; }
 
-  .card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 14px; padding: 22px; margin-bottom: 18px; }
-  .card-title { font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; }
-  .card-title-left { display: flex; align-items: center; gap: 8px; }
+.loading { text-align:center; padding:50px; color:#6060a0; }
+.spinner { width:32px; height:32px; border:3px solid #2a2a4a; border-top-color:#6c63ff; border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 12px; }
+@keyframes spin { to{transform:rotate(360deg)} }
+.empty { text-align:center; padding:40px; color:#6060a0; }
+.alert { padding:11px 15px; border-radius:9px; margin-bottom:14px; font-size:13px; }
+.alert-info    { background:#6c63ff15; border:1px solid #6c63ff33; color:#a0a0ff; }
+.alert-success { background:#00d4aa15; border:1px solid #00d4aa33; color:#00d4aa; }
 
-  /* Manager cards */
-  .manager-card { background: #0f0f1a; border: 1px solid #2a2a4a; border-radius: 12px; padding: 18px; margin-bottom: 12px; }
-  .manager-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-  .manager-name { font-size: 16px; font-weight: 700; color: #fff; }
-  .manager-meta { font-size: 12px; color: #6060a0; margin-top: 2px; }
-  .score-big { font-size: 28px; font-weight: 800; }
-  .score-high { color: #00d4aa; }
-  .score-mid { color: #ffd600; }
-  .score-low { color: #ff4d6d; }
-
-  .results-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-  .result-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-  .rb-green { background: #00d4aa22; color: #00d4aa; }
-  .rb-red { background: #ff4d6d22; color: #ff4d6d; }
-  .rb-yellow { background: #ffd60022; color: #ffd600; }
-
-  .errors-section { margin-top: 10px; }
-  .section-label { font-size: 11px; color: #6060a0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
-  .error-tag { display: inline-block; background: #ff4d6d15; border: 1px solid #ff4d6d33; color: #ff8099; padding: 3px 10px; border-radius: 6px; font-size: 12px; margin: 2px; }
-  .strength-tag { display: inline-block; background: #00d4aa15; border: 1px solid #00d4aa33; color: #00d4aa; padding: 3px 10px; border-radius: 6px; font-size: 12px; margin: 2px; }
-
-  /* Conv list */
-  .conv-row { padding: 14px; border-radius: 10px; background: #0f0f1a; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-  .conv-name { font-weight: 600; font-size: 14px; }
-  .conv-meta { font-size: 12px; color: #6060a0; margin-top: 2px; }
-  .conv-right { text-align: right; }
-  .tag { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
-  .tag-green { background: #00d4aa22; color: #00d4aa; }
-  .tag-red { background: #ff4d6d22; color: #ff4d6d; }
-  .tag-yellow { background: #ffd60022; color: #ffd600; }
-  .tag-blue { background: #6c63ff22; color: #6c63ff; }
-
-  .webhook-info { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 10px; padding: 14px; margin-bottom: 20px; font-size: 13px; color: #a0a0c0; }
-  .webhook-url { background: #0f0f1a; padding: 6px 12px; border-radius: 6px; font-family: monospace; color: #6c63ff; margin-top: 6px; word-break: break-all; font-size: 12px; }
-
-  .loading { text-align: center; padding: 60px; color: #6060a0; }
-  .spinner { width: 36px; height: 36px; border: 3px solid #2a2a4a; border-top-color: #6c63ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 14px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .empty { text-align: center; padding: 40px; color: #6060a0; }
-  .empty-icon { font-size: 36px; margin-bottom: 10px; }
-
-  .progress-bar { background: #0f0f1a; border-radius: 6px; height: 6px; margin-top: 8px; overflow: hidden; }
-  .progress-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #6c63ff, #00d4aa); transition: width 0.5s; }
-
-  .alert { padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; font-size: 13px; }
-  .alert-info { background: #6c63ff15; border: 1px solid #6c63ff33; color: #a0a0ff; }
-  .alert-success { background: #00d4aa15; border: 1px solid #00d4aa33; color: #00d4aa; }
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media(max-width:900px){.grid-2{grid-template-columns:1fr}}
+.webhook-url { background:#0f0f1a; padding:6px 12px; border-radius:6px; font-family:monospace; color:#6c63ff; margin-top:6px; font-size:12px; word-break:break-all; }
 </style>
 </head>
 <body>
 
 <div class="header">
   <div class="logo">INVICTUS <span>GO</span> — Аудит</div>
-  <div style="font-size:13px; color:#6060a0;"><span class="status-dot"></span>Система активна</div>
+  <div style="font-size:12px;color:#6060a0;"><span class="dot"></span>Live</div>
 </div>
 
 <div class="main">
-
-  <!-- Tabs -->
   <div class="tabs">
-    <button class="tab active" onclick="showTab('audit')">📊 Аудит</button>
-    <button class="tab" onclick="showTab('managers')">👥 Менеджеры</button>
-    <button class="tab" onclick="showTab('settings')">⚙️ Настройки</button>
+    <button class="tab active" onclick="showTab('audit',this)">📊 Аудит</button>
+    <button class="tab" onclick="showTab('managers',this)">👥 Менеджеры</button>
+    <button class="tab" onclick="showTab('settings',this)">⚙️ Настройки</button>
   </div>
 
-  <!-- ═══ TAB: AUDIT ═══ -->
+  <!-- ═══ АУДИТ ═══ -->
   <div id="tab-audit">
     <div class="controls">
       <div class="period-selector">
-        <button class="period-btn active" onclick="setPeriod('day')" id="btn-day">День</button>
-        <button class="period-btn" onclick="setPeriod('month')" id="btn-month">Месяц</button>
+        <button class="period-btn active" id="btn-day" onclick="setPeriod('day')">День</button>
+        <button class="period-btn" id="btn-month" onclick="setPeriod('month')">Месяц</button>
       </div>
       <input type="date" id="dateInput">
       <button class="btn btn-primary" onclick="runAudit()" id="auditBtn">🔍 Запустить аудит</button>
-      <button class="btn btn-success" onclick="analyzeAll()" id="analyzeAllBtn">⚡ Анализировать всё</button>
+      <button class="btn btn-success" onclick="analyzeAll()" id="analyzeBtn">⚡ Анализировать всё</button>
     </div>
-
-    <div id="alertBox" style="display:none;"></div>
-    <div class="loading" id="loading" style="display:none;"><div class="spinner"></div>Анализируем данные...</div>
-
-    <div id="results" style="display:none;">
+    <div id="alertBox" style="display:none"></div>
+    <div class="loading" id="auditLoading" style="display:none"><div class="spinner"></div>Анализируем...</div>
+    <div id="auditResults" style="display:none">
       <div class="stats-grid" id="statsGrid"></div>
       <div class="grid-2">
         <div class="card">
-          <div class="card-title"><div class="card-title-left">📞 Последние звонки</div></div>
+          <div class="card-title">📞 Звонки</div>
           <div id="callsList"></div>
         </div>
         <div class="card">
-          <div class="card-title">
-            <div class="card-title-left">💬 Переписки WhatsApp</div>
-            <span id="convsCount" style="font-size:12px;color:#6060a0;"></span>
-          </div>
+          <div class="card-title"><span>💬 Переписки WhatsApp</span><span id="convsCount" style="font-size:11px;color:#6060a0"></span></div>
           <div id="convsList"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ═══ TAB: MANAGERS ═══ -->
-  <div id="tab-managers" style="display:none;">
+  <!-- ═══ МЕНЕДЖЕРЫ — ТАБЛИЦА ═══ -->
+  <div id="tab-managers" style="display:none">
     <div class="controls">
-      <button class="btn btn-primary" onclick="loadManagerReport()" id="managerReportBtn">📊 Загрузить отчёт</button>
-      <button class="btn btn-success" onclick="analyzeAll()" id="analyzeAllBtn2">⚡ Анализировать все переписки</button>
+      <button class="btn btn-primary" onclick="loadManagers()" id="loadBtn">📊 Загрузить отчёт</button>
+      <button class="btn btn-success" onclick="analyzeAll()" id="analyzeBtn2">⚡ Анализировать переписки</button>
     </div>
-    <div class="loading" id="managerLoading" style="display:none;"><div class="spinner"></div>Формируем отчёт...</div>
-    <div id="managerResults"></div>
+    <div class="loading" id="mgrLoading" style="display:none"><div class="spinner"></div>Загружаем...</div>
+    <div id="mgrResults"></div>
   </div>
 
-  <!-- ═══ TAB: SETTINGS ═══ -->
-  <div id="tab-settings" style="display:none;">
-    <div class="webhook-info">
-      <strong>📡 Wazzup вебхук (переписки WhatsApp):</strong>
-      <div class="webhook-url" id="webhookUrl"></div>
+  <!-- ═══ НАСТРОЙКИ ═══ -->
+  <div id="tab-settings" style="display:none">
+    <div class="card">
+      <div class="card-title">📡 Wazzup вебхук (переписки WhatsApp)</div>
+      <div class="webhook-url" id="wazzupUrl"></div>
     </div>
-    <div class="webhook-info">
-      <strong>📞 Звонки (Yandex транскрипция → наш сервер):</strong>
+    <div class="card">
+      <div class="card-title">📞 Звонки (Yandex транскрипция)</div>
       <div class="webhook-url" id="callsUrl"></div>
-      <div style="margin-top:10px; font-size:12px;">
-        Формат JSON: <code style="color:#6c63ff;">{ "call_id", "manager_name", "lead_id", "contact_phone", "duration", "direction", "transcript", "called_at" }</code>
+      <div style="margin-top:10px;font-size:12px;color:#6060a0">
+        Формат: <code style="color:#6c63ff">{ "call_id", "manager_name", "lead_id", "contact_phone", "duration", "direction", "transcript", "called_at" }</code>
       </div>
     </div>
   </div>
-
 </div>
 
 <script>
-const base = window.location.origin;
-document.getElementById('webhookUrl').textContent = base + '/webhook/wazzup';
-document.getElementById('callsUrl').textContent = base + '/webhook/call';
+const base = location.origin;
+document.getElementById('wazzupUrl').textContent = base + '/webhook/wazzup';
+document.getElementById('callsUrl').textContent  = base + '/webhook/call';
 document.getElementById('dateInput').value = new Date().toISOString().split('T')[0];
 
-let currentPeriod = 'day';
-let currentTab = 'audit';
+let period = 'day';
 
-function showTab(tab) {
-  currentTab = tab;
-  document.querySelectorAll('[id^="tab-"]').forEach(el => el.style.display = 'none');
-  document.getElementById('tab-' + tab).style.display = 'block';
+function showTab(name, btn) {
+  document.querySelectorAll('[id^="tab-"]').forEach(el => el.style.display='none');
+  document.getElementById('tab-'+name).style.display='block';
   document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
+  btn.classList.add('active');
 }
-
 function setPeriod(p) {
-  currentPeriod = p;
-  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('btn-' + p).classList.add('active');
+  period = p;
+  document.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-'+p).classList.add('active');
 }
-
-function getScoreClass(score) {
-  if (score >= 7) return 'score-high';
-  if (score >= 4) return 'score-mid';
-  return 'score-low';
-}
-
-function getTagClass(result) {
-  const map = { 'продал': 'tag-green', 'не продал': 'tag-red', 'перезвонит': 'tag-yellow', 'думает': 'tag-yellow' };
-  return map[result] || 'tag-blue';
-}
+function scoreClass(s) { return s>=7?'score-high':s>=4?'score-mid':'score-low'; }
+function tagClass(r) { return {продал:'tag-green','не продал':'tag-red',перезвонит:'tag-yellow',думает:'tag-yellow'}[r]||'tag-blue'; }
 
 function showAlert(msg, type='info') {
   const el = document.getElementById('alertBox');
   el.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
-  el.style.display = 'block';
-  setTimeout(() => el.style.display = 'none', 5000);
+  el.style.display='block';
+  setTimeout(()=>el.style.display='none', 5000);
 }
 
 async function analyzeAll() {
-  const btns = document.querySelectorAll('#analyzeAllBtn, #analyzeAllBtn2');
-  btns.forEach(b => { b.disabled = true; b.textContent = '⏳ Анализ запущен...'; });
-
+  const btns = document.querySelectorAll('#analyzeBtn,#analyzeBtn2');
+  btns.forEach(b=>{b.disabled=true;b.textContent='⏳ Запущен...'});
   try {
-    const res = await fetch('/api/analyze-all', { method: 'POST' });
-    const data = await res.json();
-    showAlert(`✅ ${data.message || 'Анализ запущен!'} Обновите страницу через 1-2 минуты.`, 'success');
-  } catch(e) {
-    showAlert('Ошибка: ' + e.message);
-  } finally {
-    btns.forEach(b => { b.disabled = false; b.textContent = b.id === 'analyzeAllBtn2' ? '⚡ Анализировать все переписки' : '⚡ Анализировать всё'; });
-  }
+    const r = await fetch('/api/analyze-all',{method:'POST'});
+    const d = await r.json();
+    showAlert('✅ '+d.message+' Обновите через 1-2 мин.','success');
+  } catch(e) { showAlert('Ошибка: '+e.message); }
+  finally { btns.forEach(b=>{b.disabled=false;b.textContent=b.id==='analyzeBtn2'?'⚡ Анализировать переписки':'⚡ Анализировать всё'}); }
 }
 
 async function runAudit() {
   const date = document.getElementById('dateInput').value;
-  const btn = document.getElementById('auditBtn');
-  btn.disabled = true; btn.textContent = 'Анализируем...';
-  document.getElementById('loading').style.display = 'block';
-  document.getElementById('results').style.display = 'none';
-
+  document.getElementById('auditBtn').disabled=true;
+  document.getElementById('auditLoading').style.display='block';
+  document.getElementById('auditResults').style.display='none';
   try {
-    const res = await fetch(`/api/audit?period=${currentPeriod}&date=${date}`);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    renderAudit(data);
-  } catch(e) {
-    showAlert('Ошибка: ' + e.message);
-  } finally {
-    btn.disabled = false; btn.textContent = '🔍 Запустить аудит';
-    document.getElementById('loading').style.display = 'none';
-  }
+    const r = await fetch(`/api/audit?period=${period}&date=${date}`);
+    const d = await r.json();
+    if(d.error) throw new Error(d.error);
+    renderAudit(d);
+  } catch(e) { showAlert('Ошибка: '+e.message); }
+  finally { document.getElementById('auditBtn').disabled=false; document.getElementById('auditLoading').style.display='none'; }
 }
 
-function renderAudit(data) {
-  document.getElementById('results').style.display = 'block';
-
+function renderAudit(d) {
+  document.getElementById('auditResults').style.display='block';
   document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card purple"><div class="stat-label">Лидов в AMO</div><div class="stat-value">${data.amo.totalLeads.toLocaleString()}</div><div class="stat-sub">${data.dateFrom} — ${data.dateTo}</div></div>
-    <div class="stat-card green"><div class="stat-label">Звонков</div><div class="stat-value">${data.calls.analyzed}</div><div class="stat-sub">из ${data.calls.total} проанализировано</div></div>
-    <div class="stat-card ${data.calls.avgScore >= 7 ? 'green' : data.calls.avgScore >= 4 ? 'yellow' : 'red'}"><div class="stat-label">Ср. балл звонков</div><div class="stat-value">${data.calls.avgScore || '—'}</div><div class="stat-sub">из 10</div></div>
-    <div class="stat-card"><div class="stat-label">Переписок</div><div class="stat-value">${data.conversations.total}</div><div class="stat-sub">проанализировано: ${data.conversations.analyzed}</div></div>
+    <div class="stat-card purple"><div class="stat-label">Лидов в AMO</div><div class="stat-value">${d.amo.totalLeads.toLocaleString()}</div></div>
+    <div class="stat-card green"><div class="stat-label">Переписок</div><div class="stat-value">${d.conversations.total}</div></div>
+    <div class="stat-card yellow"><div class="stat-label">Проанализировано</div><div class="stat-value">${d.conversations.analyzed}</div></div>
+    <div class="stat-card"><div class="stat-label">Звонков</div><div class="stat-value">${d.calls.total}</div></div>
   `;
-
-  // Calls
   const callsEl = document.getElementById('callsList');
-  if (!data.recentCalls?.length) {
-    callsEl.innerHTML = '<div class="empty"><div class="empty-icon">📞</div>Нет звонков.<br>Ожидаем транскрипции от Yandex.</div>';
-  } else {
-    callsEl.innerHTML = data.recentCalls.map(c => `
-      <div class="conv-row">
-        <div><div class="conv-name">${c.manager || '—'}</div><div class="conv-meta">${c.phone} · ${c.date} · ${Math.floor((c.duration||0)/60)}м</div></div>
-        <div class="conv-right">
-          ${c.analysis ? `<div class="tag ${getTagClass(c.analysis.result)}">${c.analysis.result}</div><div style="font-size:12px;color:#6060a0;margin-top:4px;">⭐ ${c.analysis.score}/10</div>` : '<span style="color:#6060a0;font-size:12px;">Ожидает</span>'}
-        </div>
+  callsEl.innerHTML = !d.recentCalls?.length
+    ? '<div class="empty">📞 Нет звонков</div>'
+    : d.recentCalls.map(c=>`<div class="conv-row">
+        <div><div class="conv-name">${c.manager||'—'}</div><div class="conv-meta">${c.phone} · ${c.date}</div></div>
+        <div style="text-align:right">${c.analysis?`<span class="tag ${tagClass(c.analysis.result)}">${c.analysis.result}</span><br><small style="color:#6060a0">⭐${c.analysis.score}/10</small>`:'<span style="color:#6060a0;font-size:12px">Ожидает</span>'}</div>
       </div>`).join('');
-  }
-
-  // Conversations
-  document.getElementById('convsCount').textContent = `${data.conversations.total} чатов`;
-  const convsEl = document.getElementById('convsList');
-  if (!data.recentConversations?.length) {
-    convsEl.innerHTML = '<div class="empty"><div class="empty-icon">💬</div>Нет переписок за период.</div>';
-  } else {
-    convsEl.innerHTML = data.recentConversations.map(c => {
-      let analysisHtml = '<span style="color:#6060a0;font-size:12px;">Нажмите "Анализировать всё"</span>';
-      if (c.analysis) {
-        try {
-          const a = JSON.parse(c.analysis);
-          analysisHtml = `<div class="tag ${getTagClass(a.result)}">${a.result}</div><div style="font-size:12px;color:#6060a0;margin-top:4px;">⭐ ${a.score}/10</div>`;
-        } catch(e) {}
-      }
-      return `<div class="conv-row">
-        <div><div class="conv-name">${c.contact_name || c.contact_phone}</div><div class="conv-meta">${c.messages_count} сообщ. · ${c.lastDate || ''}</div></div>
-        <div class="conv-right">${analysisHtml}</div>
-      </div>`;
-    }).join('');
-  }
+  document.getElementById('convsCount').textContent = d.conversations.total+' чатов';
+  document.getElementById('convsList').innerHTML = !d.recentConversations?.length
+    ? '<div class="empty">💬 Нет переписок</div>'
+    : d.recentConversations.map(c=>{
+        let html='<span style="color:#6060a0;font-size:11px">Нажмите «Анализировать»</span>';
+        if(c.analysis){try{const a=JSON.parse(c.analysis);html=`<span class="tag ${tagClass(a.result)}">${a.result}</span><br><small style="color:#6060a0">⭐${a.score}/10</small>`}catch(e){}}
+        return `<div class="conv-row">
+          <div><div class="conv-name">${c.contact_name||c.contact_phone}</div><div class="conv-meta">${c.manager_name||'—'} · ${c.messages_count} сообщ.</div></div>
+          <div style="text-align:right">${html}</div>
+        </div>`;
+      }).join('');
 }
 
-async function loadManagerReport() {
-  const btn = document.getElementById('managerReportBtn');
-  btn.disabled = true; btn.textContent = 'Загружаем...';
-  document.getElementById('managerLoading').style.display = 'block';
-  document.getElementById('managerResults').innerHTML = '';
-
+async function loadManagers() {
+  document.getElementById('loadBtn').disabled=true;
+  document.getElementById('mgrLoading').style.display='block';
+  document.getElementById('mgrResults').innerHTML='';
   try {
-    const res = await fetch('/api/manager-report');
-    const data = await res.json();
-    renderManagerReport(data);
+    const r = await fetch('/api/manager-report');
+    const d = await r.json();
+    renderManagers(d);
   } catch(e) {
-    document.getElementById('managerResults').innerHTML = `<div class="alert alert-info">Ошибка: ${e.message}</div>`;
+    document.getElementById('mgrResults').innerHTML=`<div class="alert alert-info">Ошибка: ${e.message}</div>`;
   } finally {
-    btn.disabled = false; btn.textContent = '📊 Загрузить отчёт';
-    document.getElementById('managerLoading').style.display = 'none';
+    document.getElementById('loadBtn').disabled=false;
+    document.getElementById('mgrLoading').style.display='none';
   }
 }
 
-function renderManagerReport(data) {
-  const el = document.getElementById('managerResults');
-
-  if (!data.managers?.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">👥</div>Нет данных.<br>Сначала нажмите "Анализировать все переписки".</div>';
+function renderManagers(d) {
+  const el = document.getElementById('mgrResults');
+  if(!d.managers?.length) {
+    el.innerHTML='<div class="empty" style="padding:60px">👥 Нет данных.<br><br>Нажмите «⚡ Анализировать переписки», подождите 2 мин и загрузите снова.</div>';
     return;
   }
 
-  el.innerHTML = `
-    <div class="stats-grid" style="margin-bottom:20px;">
-      <div class="stat-card purple"><div class="stat-label">Менеджеров</div><div class="stat-value">${data.managers.length}</div></div>
-      <div class="stat-card"><div class="stat-label">Переписок</div><div class="stat-value">${data.totalConvs}</div></div>
-      <div class="stat-card"><div class="stat-label">Звонков</div><div class="stat-value">${data.totalCalls}</div></div>
-    </div>
-    ${data.managers.map((m, i) => `
-      <div class="manager-card">
-        <div class="manager-header">
-          <div>
-            <div style="font-size:12px;color:#6060a0;margin-bottom:4px;">#${i+1}</div>
-            <div class="manager-name">${m.name}</div>
-            <div class="manager-meta">${m.totalInteractions} взаимодействий · ${m.convs} переписок · ${m.calls} звонков</div>
-          </div>
-          <div style="text-align:right;">
-            <div class="score-big ${getScoreClass(m.avgScore)}">${m.avgScore}</div>
-            <div style="font-size:11px;color:#6060a0;">из 10</div>
-          </div>
-        </div>
+  const summary = `
+    <div class="stats-grid" style="margin-bottom:16px">
+      <div class="stat-card purple"><div class="stat-label">Менеджеров</div><div class="stat-value">${d.managers.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Переписок</div><div class="stat-value">${d.totalConvs}</div></div>
+      <div class="stat-card"><div class="stat-label">Звонков</div><div class="stat-value">${d.totalCalls}</div></div>
+      <div class="stat-card green"><div class="stat-label">Ср. рейтинг</div><div class="stat-value">${d.managers.length?(d.managers.reduce((s,m)=>s+m.avgScore,0)/d.managers.length).toFixed(1):'—'}</div></div>
+    </div>`;
 
-        <div class="progress-bar"><div class="progress-fill" style="width:${m.avgScore * 10}%"></div></div>
+  const tableRows = d.managers.map((m, i) => {
+    const all = m.results.sold + m.results.lost + m.results.pending;
+    const conv = all ? Math.round(m.results.sold / all * 100) : 0;
+    const sc = scoreClass(m.avgScore);
+    const err1 = m.topErrors[0]||'—';
+    const err2 = m.topErrors[1]||'—';
+    const str1 = m.topStrengths[0]||'—';
+    const rec  = m.lastRecommendation||'—';
+    return `<tr>
+      <td class="center rank">${i+1}</td>
+      <td><div class="manager-name">${m.name}</div></td>
+      <td class="center">
+        <div class="score-cell ${sc}">${m.avgScore}</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${m.avgScore*10}%"></div></div>
+      </td>
+      <td class="center">${m.convs}</td>
+      <td class="center">${m.calls}</td>
+      <td class="center"><span class="result-badge rb-green">✅ ${m.results.sold}</span></td>
+      <td class="center"><span class="result-badge rb-red">❌ ${m.results.lost}</span></td>
+      <td class="center"><span class="result-badge rb-yellow">⏳ ${m.results.pending}</span></td>
+      <td class="center"><span class="conv-pct">${conv}%</span></td>
+      <td><span class="error-tag">${err1}</span></td>
+      <td><span class="error-tag">${err2}</span></td>
+      <td><span class="str-tag">${str1}</span></td>
+      <td><div class="rec-text">${rec}</div></td>
+    </tr>`;
+  }).join('');
 
-        <div class="results-row" style="margin-top:12px;">
-          <span class="result-badge rb-green">✅ Продал: ${m.results.sold}</span>
-          <span class="result-badge rb-red">❌ Не продал: ${m.results.lost}</span>
-          <span class="result-badge rb-yellow">⏳ В процессе: ${m.results.pending}</span>
-        </div>
-
-        ${m.topErrors.length ? `
-        <div class="errors-section">
-          <div class="section-label">⚠️ Типичные ошибки</div>
-          ${m.topErrors.map(e => `<span class="error-tag">${e}</span>`).join('')}
-        </div>` : ''}
-
-        ${m.topStrengths.length ? `
-        <div class="errors-section" style="margin-top:8px;">
-          <div class="section-label">💪 Сильные стороны</div>
-          ${m.topStrengths.map(s => `<span class="strength-tag">${s}</span>`).join('')}
-        </div>` : ''}
-      </div>
-    `).join('')}
-  `;
+  el.innerHTML = summary + `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center">#</th>
+            <th>Менеджер</th>
+            <th class="center">Рейтинг<br>0–10</th>
+            <th class="center">Перепис.</th>
+            <th class="center">Звонки</th>
+            <th class="center">Продал</th>
+            <th class="center">Не продал</th>
+            <th class="center">В процессе</th>
+            <th class="center">Конверсия</th>
+            <th>Ошибка #1</th>
+            <th>Ошибка #2</th>
+            <th>Сильная сторона</th>
+            <th>Рекомендация</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>`;
 }
 </script>
 </body>
