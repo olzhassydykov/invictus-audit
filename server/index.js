@@ -45,7 +45,6 @@ db.serialize(() => {
   )`);
 });
 
-// ─── MANAGERS MAP ─────────────────────────────────────────────────────────────
 const MANAGERS = {
   '2044417':'Танеке','2150484':'Айгерим','7158001':'Администратор',
   '7207546':'Акжол','7270360':'Дильназ','7616848':'Гания',
@@ -54,9 +53,10 @@ const MANAGERS = {
   '8945674':'Айгера','8945678':'Айдай','9473638':'Милана',
   '10158750':'Айдана','10757002':'Алишер','10920190':'Аятолла',
   '11028126':'Дамир','11179978':'Есей','11237754':'Жасулан',
-  '11252562':'Каракат','11428894':'Гульден','12062466':'Дильнара',
+  '11252562':'Каракат','12062466':'Дильнара',
   '12062502':'Амина','13526610':'Александр','13526650':'Айдана2',
-  '13529206':'Диана2','13552546':'Диас','13565310':'Назир','13586134':'Есей2'
+  '13529206':'Диана2','13552546':'Диас','13565310':'Назир','13586134':'Есей2',
+  '11428894':'Гульден'
 };
 
 function toSeconds(ts) {
@@ -82,85 +82,48 @@ async function claudeAnalyze(prompt) {
       'x-api-key': ANTHROPIC_KEY,
       'anthropic-version': '2023-06-01',
       'Content-Type': 'application/json'
-    }
+    },
+    timeout: 30000
   });
   return res.data.content[0].text;
-}
-
-// ─── SYNC MANAGERS FROM AMO TALKS ────────────────────────────────────────────
-async function syncManagersFromAMO() {
-  try {
-    console.log('Syncing managers from AMO talks...');
-    let page = 1;
-    let synced = 0;
-
-    while (true) {
-      const data = await amoGet(`/talks?limit=50&page=${page}`);
-      const talks = data._embedded?.talks || [];
-      if (!talks.length) break;
-
-      for (const talk of talks) {
-        const chatId = talk.chat_id;
-        const leadId = talk.entity_id;
-        const responsibleId = talk.responsible_user_id;
-        const managerName = MANAGERS[String(responsibleId)] || `ID:${responsibleId}`;
-
-        // Получаем имя контакта из leads если есть
-        await new Promise(resolve => {
-          db.run(
-            `UPDATE conversations SET manager_name = ?, lead_id = ? WHERE chat_id = ?`,
-            [managerName, String(leadId), chatId],
-            function(err) {
-              if (this.changes > 0) synced++;
-              resolve();
-            }
-          );
-        });
-      }
-
-      if (talks.length < 50) break;
-      page++;
-      if (page > 20) break; // макс 1000 talks
-      await new Promise(r => setTimeout(r, 200));
-    }
-
-    console.log(`Synced managers for ${synced} conversations`);
-    return synced;
-  } catch(e) {
-    console.error('Sync managers error:', e.message);
-    return 0;
-  }
 }
 
 // ─── WAZZUP WEBHOOK ───────────────────────────────────────────────────────────
 app.post('/webhook/wazzup', async (req, res) => {
   try {
-    console.log('Wazzup webhook:', JSON.stringify(req.body).slice(0, 300));
     const { messages } = req.body;
     if (!messages || !Array.isArray(messages)) return res.json({ ok: true });
 
     for (const msg of messages) {
-      const { messageId, chatId, channelId, text, timestamp, contact, author } = msg;
-      if (!text) continue;
+      const { messageId, chatId, channelId, text, dateTime, contact, authorId, authorName, isEcho } = msg;
+      if (!text || !text.trim()) continue;
 
-      const direction = author?.channelId ? 'out' : 'in';
+      // Направление: isEcho=true значит сообщение от менеджера
+      const direction = isEcho ? 'out' : 'in';
       const contactPhone = contact?.phone || chatId;
       const contactName = contact?.name || contactPhone;
-      const ts = toSeconds(timestamp);
+      const ts = toSeconds(dateTime ? Math.floor(new Date(dateTime).getTime() / 1000) : null);
+
+      // Имя менеджера из authorId или authorName прямо из вебхука
+      let managerName = null;
+      if (isEcho && authorId) {
+        managerName = MANAGERS[String(authorId)] || authorName || null;
+      }
 
       db.run(`INSERT OR IGNORE INTO messages 
-        (chat_id, wazzup_message_id, channel_id, contact_name, contact_phone, direction, text, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [chatId, messageId, channelId, contactName, contactPhone, direction, text, ts]
+        (chat_id, wazzup_message_id, channel_id, contact_name, contact_phone, manager_name, direction, text, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [chatId, messageId, channelId, contactName, contactPhone, managerName, direction, text.trim(), ts]
       );
 
-      db.run(`INSERT INTO conversations (chat_id, contact_name, contact_phone, last_message_at, messages_count)
-        VALUES (?, ?, ?, ?, 1)
+      db.run(`INSERT INTO conversations (chat_id, contact_name, contact_phone, manager_name, last_message_at, messages_count)
+        VALUES (?, ?, ?, ?, ?, 1)
         ON CONFLICT(chat_id) DO UPDATE SET
           last_message_at = excluded.last_message_at,
           messages_count = messages_count + 1,
-          contact_name = excluded.contact_name`,
-        [chatId, contactName, contactPhone, ts]
+          contact_name = excluded.contact_name,
+          manager_name = COALESCE(excluded.manager_name, manager_name)`,
+        [chatId, contactName, contactPhone, managerName, ts]
       );
     }
 
@@ -180,7 +143,6 @@ app.post('/webhook/call', async (req, res) => {
     const analysis = await claudeAnalyze(`
 Ты — аудитор отдела продаж фитнес-клуба Invictus GO (Алматы).
 Проанализируй звонок менеджера "${manager_name}".
-
 ТРАНСКРИПЦИЯ:
 ${transcript}
 
@@ -210,24 +172,11 @@ ${transcript}
   }
 });
 
-// ─── API: SYNC MANAGERS ───────────────────────────────────────────────────────
-app.post('/api/sync-managers', async (req, res) => {
-  try {
-    const synced = await syncManagersFromAMO();
-    res.json({ ok: true, synced });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ─── API: ANALYZE ALL ─────────────────────────────────────────────────────────
 app.post('/api/analyze-all', async (req, res) => {
   try {
-    // Сначала синхронизируем менеджеров
-    await syncManagersFromAMO();
-
     const conversations = await new Promise((resolve) => {
-      db.all(`SELECT * FROM conversations WHERE analysis IS NULL ORDER BY messages_count DESC LIMIT 50`,
+      db.all(`SELECT * FROM conversations WHERE analysis IS NULL AND messages_count > 0 ORDER BY messages_count DESC LIMIT 50`,
         (err, rows) => resolve(rows || []));
     });
 
@@ -246,34 +195,41 @@ app.post('/api/analyze-all', async (req, res) => {
           if (!messages.length) continue;
 
           const transcript = messages.map(m =>
-            `${m.direction === 'out' ? 'Менеджер' : 'Клиент'}: ${m.text}`
+            `${m.direction === 'out' ? (m.manager_name || 'Менеджер') : 'Клиент'}: ${m.text}`
           ).join('\n');
 
-          const managerName = conv.manager_name || 'Неизвестно';
+          // Берём имя менеджера из сообщений если нет в conversations
+          const managerFromMsgs = messages.find(m => m.direction === 'out' && m.manager_name)?.manager_name;
+          const managerName = conv.manager_name || managerFromMsgs || 'Неизвестно';
+
+          // Обновляем manager_name если нашли
+          if (managerFromMsgs && !conv.manager_name) {
+            db.run(`UPDATE conversations SET manager_name = ? WHERE chat_id = ?`, [managerFromMsgs, conv.chat_id]);
+          }
 
           const analysis = await claudeAnalyze(`
 Ты — аудитор отдела продаж фитнес-клуба Invictus GO (Алматы).
 Менеджер: ${managerName}
 Клиент: ${conv.contact_name}
 
-ПЕРЕПИСКА:
-${transcript.slice(0, 3000)}
+ПЕРЕПИСКА WhatsApp:
+${transcript.slice(0, 4000)}
 
 Ответь ТОЛЬКО в JSON без markdown:
 {
   "score": число от 1 до 10,
   "result": "продал" | "не продал" | "перезвонит" | "думает",
   "client_interest": "высокий" | "средний" | "низкий",
-  "errors": ["ошибка 1"],
-  "strengths": ["сильная сторона 1"],
-  "loss_reason": "причина или null",
+  "errors": ["конкретная ошибка менеджера"],
+  "strengths": ["конкретная сильная сторона"],
+  "loss_reason": "конкретная причина потери или null",
   "recommendation": "конкретный совет менеджеру ${managerName}"
 }`);
 
           db.run(`UPDATE conversations SET analysis = ?, analyzed_at = CURRENT_TIMESTAMP WHERE chat_id = ?`,
             [analysis, conv.chat_id]);
 
-          await new Promise(r => setTimeout(r, 600));
+          await new Promise(r => setTimeout(r, 500));
         } catch(e) {
           console.error('Analysis error:', conv.chat_id, e.message);
         }
@@ -316,42 +272,21 @@ app.get('/api/audit', async (req, res) => {
     ));
 
     const conversations = await new Promise(r => db.all(
-      `SELECT * FROM conversations WHERE 
-        (last_message_at >= ? AND last_message_at <= ?)
-        OR (created_at >= datetime(?, 'unixepoch') AND created_at <= datetime(?, 'unixepoch'))
-       ORDER BY last_message_at DESC`,
-      [tsFrom, tsTo, tsFrom, tsTo], (e, rows) => r(rows || [])
+      `SELECT * FROM conversations WHERE last_message_at >= ? AND last_message_at <= ? ORDER BY last_message_at DESC`,
+      [tsFrom, tsTo], (e, rows) => r(rows || [])
     ));
-
-    const callStats = { total: calls.length, analyzed: calls.filter(c => c.analysis).length, avgScore: 0, byManager: {} };
-    let totalScore = 0, scoredCalls = 0;
-
-    for (const call of calls) {
-      if (call.analysis) {
-        try {
-          const a = JSON.parse(call.analysis);
-          totalScore += a.score || 0; scoredCalls++;
-          const name = call.manager_name || 'Неизвестно';
-          if (!callStats.byManager[name]) callStats.byManager[name] = { calls: 0, totalScore: 0, errors: [] };
-          callStats.byManager[name].calls++;
-          callStats.byManager[name].totalScore += a.score || 0;
-          if (a.errors) callStats.byManager[name].errors.push(...a.errors);
-        } catch(e) {}
-      }
-    }
-    if (scoredCalls > 0) callStats.avgScore = (totalScore / scoredCalls).toFixed(1);
 
     const report = {
       period, dateFrom, dateTo,
       amo: { totalLeads },
-      calls: callStats,
+      calls: { total: calls.length, analyzed: calls.filter(c => c.analysis).length, avgScore: 0 },
       conversations: { total: conversations.length, analyzed: conversations.filter(c => c.analysis).length },
       recentCalls: calls.slice(0, 10).map(c => ({
         id: c.call_id, manager: c.manager_name, phone: c.contact_phone, duration: c.duration,
         date: new Date(c.called_at * 1000).toLocaleDateString('ru-RU'),
         analysis: c.analysis ? (() => { try { return JSON.parse(c.analysis); } catch(e) { return null; } })() : null
       })),
-      recentConversations: conversations.slice(0, 20).map(c => ({
+      recentConversations: conversations.slice(0, 30).map(c => ({
         ...c,
         lastDate: c.last_message_at ? new Date(c.last_message_at * 1000).toLocaleString('ru-RU') : '—'
       }))
@@ -381,23 +316,24 @@ app.get('/api/manager-report', async (req, res) => {
 
     for (const conv of conversations) {
       const name = conv.manager_name || 'Неизвестно';
-      if (!managers[name]) managers[name] = { name, convs: [], calls: [], scores: [], errors: [], strengths: [] };
+      if (!managers[name]) managers[name] = { name, convs: [], calls: [], scores: [], errors: [], strengths: [], recommendations: [] };
       try {
         const a = JSON.parse(conv.analysis);
         managers[name].convs.push({ contact: conv.contact_name, ...a });
-        managers[name].scores.push(a.score || 0);
+        if (a.score) managers[name].scores.push(a.score);
         if (a.errors) managers[name].errors.push(...a.errors);
         if (a.strengths) managers[name].strengths.push(...a.strengths);
+        if (a.recommendation) managers[name].recommendations.push(a.recommendation);
       } catch(e) {}
     }
 
     for (const call of calls) {
       const name = call.manager_name || 'Неизвестно';
-      if (!managers[name]) managers[name] = { name, convs: [], calls: [], scores: [], errors: [], strengths: [] };
+      if (!managers[name]) managers[name] = { name, convs: [], calls: [], scores: [], errors: [], strengths: [], recommendations: [] };
       try {
         const a = JSON.parse(call.analysis);
         managers[name].calls.push({ phone: call.contact_phone, ...a });
-        managers[name].scores.push(a.score || 0);
+        if (a.score) managers[name].scores.push(a.score);
         if (a.errors) managers[name].errors.push(...a.errors);
         if (a.strengths) managers[name].strengths.push(...a.strengths);
       } catch(e) {}
@@ -406,14 +342,25 @@ app.get('/api/manager-report', async (req, res) => {
     const report = Object.values(managers).map(m => {
       const avgScore = m.scores.length ? (m.scores.reduce((a,b) => a+b,0) / m.scores.length).toFixed(1) : 0;
       const all = [...m.convs, ...m.calls];
+
+      // Считаем частоту ошибок
+      const errorCount = {};
+      m.errors.forEach(e => { errorCount[e] = (errorCount[e] || 0) + 1; });
+      const topErrors = Object.entries(errorCount).sort((a,b) => b[1]-a[1]).slice(0,5).map(([e]) => e);
+
+      const strengthCount = {};
+      m.strengths.forEach(s => { strengthCount[s] = (strengthCount[s] || 0) + 1; });
+      const topStrengths = Object.entries(strengthCount).sort((a,b) => b[1]-a[1]).slice(0,3).map(([s]) => s);
+
       return {
         name: m.name,
         totalInteractions: all.length,
         convs: m.convs.length,
         calls: m.calls.length,
         avgScore: Number(avgScore),
-        topErrors: [...new Set(m.errors)].slice(0, 5),
-        topStrengths: [...new Set(m.strengths)].slice(0, 3),
+        topErrors,
+        topStrengths,
+        lastRecommendation: m.recommendations[m.recommendations.length - 1] || null,
         results: {
           sold: all.filter(x => x.result === 'продал').length,
           lost: all.filter(x => x.result === 'не продал').length,
@@ -445,13 +392,10 @@ app.get('/api/stats', async (req, res) => {
 
 app.get('/api/debug/conversations', async (req, res) => {
   const rows = await new Promise(r => db.all(
-    'SELECT chat_id, contact_name, manager_name, last_message_at, messages_count, created_at FROM conversations ORDER BY created_at DESC LIMIT 30',
+    'SELECT chat_id, contact_name, manager_name, last_message_at, messages_count, analysis, created_at FROM conversations ORDER BY created_at DESC LIMIT 50',
     (e, rows) => r(rows || [])
   ));
   res.json(rows);
 });
-
-// Синхронизируем менеджеров при старте через 5 сек
-setTimeout(() => syncManagersFromAMO(), 5000);
 
 app.listen(PORT, () => console.log(`🚀 Invictus Audit на порту ${PORT}`));
