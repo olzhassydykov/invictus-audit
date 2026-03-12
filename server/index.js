@@ -158,9 +158,15 @@ async function syncCallsForDate(dateStr) {
 
   const html = (await axios.get(url, { timeout: 15000 })).data;
 
-  // Парсим href из HTML
+  // Парсим href из HTML — только чистые .wav файлы, без tmp и split-каналов
   const matches = [...html.matchAll(/href="([^"]+\.wav)"/g)];
-  const files = matches.map(m => m[1]).filter(f => !f.startsWith('?') && !f.startsWith('/'));
+  const files = matches.map(m => m[1]).filter(f =>
+    !f.startsWith('?') &&
+    !f.startsWith('/') &&
+    !f.includes('__tmp__') &&
+    !f.endsWith('-in.wav') &&
+    !f.endsWith('-out.wav')
+  );
 
   console.log(`Found ${files.length} WAV files for ${dateStr}`);
 
