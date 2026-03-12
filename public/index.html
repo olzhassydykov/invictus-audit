@@ -6,100 +6,88 @@
 <title>Invictus GO — Аудит продаж</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#0f0f1a; color:#e0e0e0; min-height:100vh; }
-
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#0f0f1a; color:#e0e0e0; min-height:100vh; }
 .header { background:linear-gradient(135deg,#1a1a2e,#16213e); padding:16px 28px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #2a2a4a; }
 .logo { font-size:20px; font-weight:700; color:#fff; }
 .logo span { color:#6c63ff; }
 .dot { width:8px; height:8px; background:#00d4aa; border-radius:50%; display:inline-block; margin-right:6px; box-shadow:0 0 8px #00d4aa; animation:pulse 2s infinite; }
-@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
-
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 .main { padding:20px 28px; max-width:1600px; margin:0 auto; }
-
 .tabs { display:flex; gap:4px; background:#1a1a2e; padding:4px; border-radius:10px; border:1px solid #2a2a4a; margin-bottom:20px; width:fit-content; }
 .tab { padding:9px 22px; border:none; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; background:transparent; color:#6060a0; transition:all .2s; }
 .tab.active { background:#6c63ff; color:#fff; }
-
 .controls { display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap; align-items:center; }
 .btn { padding:10px 20px; border:none; border-radius:9px; cursor:pointer; font-size:13px; font-weight:600; transition:all .2s; }
 .btn-primary { background:linear-gradient(135deg,#6c63ff,#5a52d5); color:#fff; }
 .btn-primary:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(108,99,255,.4); }
 .btn-success { background:linear-gradient(135deg,#00d4aa,#00b894); color:#fff; }
 .btn-success:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(0,212,170,.4); }
+.btn-orange { background:linear-gradient(135deg,#ff9a3c,#ff6b00); color:#fff; }
+.btn-orange:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(255,107,0,.4); }
 .btn:disabled { opacity:.5; cursor:not-allowed; transform:none!important; }
 input[type="date"] { background:#1e1e35; border:1px solid #2a2a4a; color:#e0e0e0; padding:10px 14px; border-radius:9px; font-size:13px; }
 .period-selector { display:flex; gap:3px; background:#1e1e35; padding:3px; border-radius:9px; border:1px solid #2a2a4a; }
 .period-btn { padding:7px 16px; border:none; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; background:transparent; color:#a0a0c0; transition:all .2s; }
 .period-btn.active { background:#6c63ff; color:#fff; }
-
-.stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:20px; }
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); gap:12px; margin-bottom:20px; }
 .stat-card { background:#1a1a2e; border:1px solid #2a2a4a; border-radius:12px; padding:16px; }
 .stat-label { font-size:10px; color:#6060a0; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; }
-.stat-value { font-size:28px; font-weight:700; color:#fff; }
+.stat-value { font-size:26px; font-weight:700; color:#fff; }
+.stat-sub { font-size:11px; color:#6060a0; margin-top:3px; }
 .stat-card.green .stat-value { color:#00d4aa; }
 .stat-card.yellow .stat-value { color:#ffd600; }
 .stat-card.red .stat-value { color:#ff4d6d; }
 .stat-card.purple .stat-value { color:#6c63ff; }
-
-/* ── MANAGER TABLE ─────────────────────────────────── */
+.stat-card.orange .stat-value { color:#ff9a3c; }
 .table-wrap { overflow-x:auto; border-radius:12px; border:1px solid #2a2a4a; margin-bottom:20px; }
 table { width:100%; border-collapse:collapse; font-size:13px; }
 thead tr { background:#1a1a2e; }
 th { padding:12px 14px; text-align:left; font-size:11px; font-weight:700; color:#a0a0c0; text-transform:uppercase; letter-spacing:.8px; border-bottom:2px solid #6c63ff; white-space:nowrap; }
-th.center, td.center { text-align:center; }
+th.center,td.center { text-align:center; }
 tbody tr { border-bottom:1px solid #1e1e35; transition:background .15s; }
 tbody tr:hover { background:#1a1a2e; }
 tbody tr:last-child { border-bottom:none; }
 td { padding:11px 14px; color:#e0e0e0; vertical-align:middle; }
-.rank { font-weight:700; color:#6060a0; font-size:12px; }
 .manager-name { font-weight:700; color:#fff; font-size:14px; }
 .score-cell { font-size:18px; font-weight:800; }
-.score-high { color:#00d4aa; }
-.score-mid  { color:#ffd600; }
-.score-low  { color:#ff4d6d; }
+.score-high{color:#00d4aa}.score-mid{color:#ffd600}.score-low{color:#ff4d6d}
 .result-badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; white-space:nowrap; }
-.rb-green  { background:#00d4aa1a; color:#00d4aa; }
-.rb-red    { background:#ff4d6d1a; color:#ff4d6d; }
-.rb-yellow { background:#ffd6001a; color:#ffd600; }
-.conv-pct  { font-size:13px; font-weight:700; color:#6c63ff; }
+.rb-green{background:#00d4aa1a;color:#00d4aa}.rb-red{background:#ff4d6d1a;color:#ff4d6d}.rb-yellow{background:#ffd6001a;color:#ffd600}
+.conv-pct { font-size:13px; font-weight:700; color:#6c63ff; }
 .error-tag { display:inline-block; background:#ff4d6d12; border:1px solid #ff4d6d2a; color:#ff8099; padding:2px 8px; border-radius:5px; font-size:11px; margin:2px 2px 2px 0; }
-.str-tag   { display:inline-block; background:#00d4aa12; border:1px solid #00d4aa2a; color:#00d4aa; padding:2px 8px; border-radius:5px; font-size:11px; margin:2px 2px 2px 0; }
-.rec-text  { font-size:12px; color:#a0a0c0; line-height:1.5; }
+.str-tag { display:inline-block; background:#00d4aa12; border:1px solid #00d4aa2a; color:#00d4aa; padding:2px 8px; border-radius:5px; font-size:11px; margin:2px 2px 2px 0; }
+.rec-text { font-size:12px; color:#a0a0c0; line-height:1.5; }
 .progress-bar { background:#0f0f1a; border-radius:4px; height:5px; margin-top:5px; overflow:hidden; min-width:60px; }
 .progress-fill { height:100%; border-radius:4px; background:linear-gradient(90deg,#6c63ff,#00d4aa); }
-
-/* Conv cards */
 .card { background:#1a1a2e; border:1px solid #2a2a4a; border-radius:12px; padding:18px; margin-bottom:14px; }
 .card-title { font-size:14px; font-weight:600; color:#fff; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; }
 .conv-row { padding:12px; border-radius:8px; background:#0f0f1a; margin-bottom:7px; display:flex; justify-content:space-between; align-items:center; }
 .conv-name { font-weight:600; font-size:13px; }
 .conv-meta { font-size:11px; color:#6060a0; margin-top:2px; }
 .tag { padding:3px 9px; border-radius:20px; font-size:11px; font-weight:500; }
-.tag-green { background:#00d4aa1a; color:#00d4aa; }
-.tag-red   { background:#ff4d6d1a; color:#ff4d6d; }
-.tag-yellow{ background:#ffd6001a; color:#ffd600; }
-.tag-blue  { background:#6c63ff1a; color:#6c63ff; }
-
+.tag-green{background:#00d4aa1a;color:#00d4aa}.tag-red{background:#ff4d6d1a;color:#ff4d6d}
+.tag-yellow{background:#ffd6001a;color:#ffd600}.tag-blue{background:#6c63ff1a;color:#6c63ff}
+.tag-orange{background:#ff9a3c1a;color:#ff9a3c}
 .loading { text-align:center; padding:50px; color:#6060a0; }
 .spinner { width:32px; height:32px; border:3px solid #2a2a4a; border-top-color:#6c63ff; border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 12px; }
-@keyframes spin { to{transform:rotate(360deg)} }
-.empty { text-align:center; padding:40px; color:#6060a0; }
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty { text-align:center; padding:40px; color:#6060a0; font-size:14px; line-height:1.8; }
 .alert { padding:11px 15px; border-radius:9px; margin-bottom:14px; font-size:13px; }
-.alert-info    { background:#6c63ff15; border:1px solid #6c63ff33; color:#a0a0ff; }
-.alert-success { background:#00d4aa15; border:1px solid #00d4aa33; color:#00d4aa; }
-
+.alert-info{background:#6c63ff15;border:1px solid #6c63ff33;color:#a0a0ff}
+.alert-success{background:#00d4aa15;border:1px solid #00d4aa33;color:#00d4aa}
+.alert-warning{background:#ffd60015;border:1px solid #ffd60033;color:#ffd600}
 .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
 @media(max-width:900px){.grid-2{grid-template-columns:1fr}}
 .webhook-url { background:#0f0f1a; padding:6px 12px; border-radius:6px; font-family:monospace; color:#6c63ff; margin-top:6px; font-size:12px; word-break:break-all; }
+.direction-in { color:#00d4aa; font-size:11px; }
+.direction-out { color:#6c63ff; font-size:11px; }
 </style>
 </head>
 <body>
-
 <div class="header">
   <div class="logo">INVICTUS <span>GO</span> — Аудит</div>
-  <div style="font-size:12px;color:#6060a0;"><span class="dot"></span>Live</div>
+  <div style="font-size:12px;color:#6060a0"><span class="dot"></span>Live · <span id="statsLine">загрузка...</span></div>
 </div>
-
 <div class="main">
   <div class="tabs">
     <button class="tab active" onclick="showTab('audit',this)">📊 Аудит</button>
@@ -107,7 +95,7 @@ td { padding:11px 14px; color:#e0e0e0; vertical-align:middle; }
     <button class="tab" onclick="showTab('settings',this)">⚙️ Настройки</button>
   </div>
 
-  <!-- ═══ АУДИТ ═══ -->
+  <!-- АУДИТ -->
   <div id="tab-audit">
     <div class="controls">
       <div class="period-selector">
@@ -115,7 +103,8 @@ td { padding:11px 14px; color:#e0e0e0; vertical-align:middle; }
         <button class="period-btn" id="btn-month" onclick="setPeriod('month')">Месяц</button>
       </div>
       <input type="date" id="dateInput">
-      <button class="btn btn-primary" onclick="runAudit()" id="auditBtn">🔍 Запустить аудит</button>
+      <button class="btn btn-primary" onclick="runAudit()" id="auditBtn">🔍 Аудит</button>
+      <button class="btn btn-orange" onclick="syncCalls()" id="syncBtn">📞 Синхр. звонки</button>
       <button class="btn btn-success" onclick="analyzeAll()" id="analyzeBtn">⚡ Анализировать всё</button>
     </div>
     <div id="alertBox" style="display:none"></div>
@@ -124,7 +113,7 @@ td { padding:11px 14px; color:#e0e0e0; vertical-align:middle; }
       <div class="stats-grid" id="statsGrid"></div>
       <div class="grid-2">
         <div class="card">
-          <div class="card-title">📞 Звонки</div>
+          <div class="card-title"><span>📞 Звонки</span><span id="callsCount" style="font-size:11px;color:#6060a0"></span></div>
           <div id="callsList"></div>
         </div>
         <div class="card">
@@ -135,7 +124,7 @@ td { padding:11px 14px; color:#e0e0e0; vertical-align:middle; }
     </div>
   </div>
 
-  <!-- ═══ МЕНЕДЖЕРЫ — ТАБЛИЦА ═══ -->
+  <!-- МЕНЕДЖЕРЫ -->
   <div id="tab-managers" style="display:none">
     <div class="controls">
       <button class="btn btn-primary" onclick="loadManagers()" id="loadBtn">📊 Загрузить отчёт</button>
@@ -145,18 +134,16 @@ td { padding:11px 14px; color:#e0e0e0; vertical-align:middle; }
     <div id="mgrResults"></div>
   </div>
 
-  <!-- ═══ НАСТРОЙКИ ═══ -->
+  <!-- НАСТРОЙКИ -->
   <div id="tab-settings" style="display:none">
     <div class="card">
-      <div class="card-title">📡 Wazzup вебхук (переписки WhatsApp)</div>
+      <div class="card-title">📡 Wazzup вебхук</div>
       <div class="webhook-url" id="wazzupUrl"></div>
     </div>
     <div class="card">
-      <div class="card-title">📞 Звонки (Yandex транскрипция)</div>
-      <div class="webhook-url" id="callsUrl"></div>
-      <div style="margin-top:10px;font-size:12px;color:#6060a0">
-        Формат: <code style="color:#6c63ff">{ "call_id", "manager_name", "lead_id", "contact_phone", "duration", "direction", "transcript", "called_at" }</code>
-      </div>
+      <div class="card-title">📞 Записи звонков</div>
+      <div style="font-size:13px;color:#a0a0c0;margin-bottom:8px">Источник: <a href="https://op.entryx.io/amo/monitor/" target="_blank" style="color:#6c63ff">op.entryx.io/amo/monitor/</a></div>
+      <div style="font-size:12px;color:#6060a0">Транскрипция: Groq Whisper Large V3 (русский/казахский)<br>Анализ: Claude Sonnet</div>
     </div>
   </div>
 </div>
@@ -164,30 +151,51 @@ td { padding:11px 14px; color:#e0e0e0; vertical-align:middle; }
 <script>
 const base = location.origin;
 document.getElementById('wazzupUrl').textContent = base + '/webhook/wazzup';
-document.getElementById('callsUrl').textContent  = base + '/webhook/call';
 document.getElementById('dateInput').value = new Date().toISOString().split('T')[0];
-
 let period = 'day';
 
+// Загружаем статистику в хедер
+async function loadStats() {
+  try {
+    const d = await fetch('/api/stats').then(r=>r.json());
+    document.getElementById('statsLine').textContent =
+      `Переписок: ${d.convsCount} | Звонков: ${d.callsCount} (транскриб: ${d.withTranscript||0})`;
+  } catch(e) {}
+}
+loadStats();
+
 function showTab(name, btn) {
-  document.querySelectorAll('[id^="tab-"]').forEach(el => el.style.display='none');
+  document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
   document.getElementById('tab-'+name).style.display='block';
-  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
 }
 function setPeriod(p) {
-  period = p;
+  period=p;
   document.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('btn-'+p).classList.add('active');
 }
-function scoreClass(s) { return s>=7?'score-high':s>=4?'score-mid':'score-low'; }
-function tagClass(r) { return {продал:'tag-green','не продал':'tag-red',перезвонит:'tag-yellow',думает:'tag-yellow'}[r]||'tag-blue'; }
-
-function showAlert(msg, type='info') {
-  const el = document.getElementById('alertBox');
-  el.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+function scoreClass(s){return s>=7?'score-high':s>=4?'score-mid':'score-low';}
+function tagClass(r){return{продал:'tag-green','не продал':'tag-red',перезвонит:'tag-yellow',думает:'tag-yellow'}[r]||'tag-blue';}
+function showAlert(msg,type='info'){
+  const el=document.getElementById('alertBox');
+  el.innerHTML=`<div class="alert alert-${type}">${msg}</div>`;
   el.style.display='block';
-  setTimeout(()=>el.style.display='none', 5000);
+  setTimeout(()=>el.style.display='none',6000);
+}
+
+async function syncCalls() {
+  const date = document.getElementById('dateInput').value;
+  const btn = document.getElementById('syncBtn');
+  btn.disabled=true; btn.textContent='⏳ Синхронизация...';
+  try {
+    const r = await fetch('/api/sync-calls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date})});
+    const d = await r.json();
+    if(d.error) throw new Error(d.error);
+    showAlert(`✅ Найдено ${d.total} звонков, добавлено ${d.synced} новых. Транскрипция запущена в фоне (~5-10 мин).`,'success');
+    loadStats();
+  } catch(e){ showAlert('Ошибка: '+e.message,'warning'); }
+  finally { btn.disabled=false; btn.textContent='📞 Синхр. звонки'; }
 }
 
 async function analyzeAll() {
@@ -197,47 +205,58 @@ async function analyzeAll() {
     const r = await fetch('/api/analyze-all',{method:'POST'});
     const d = await r.json();
     showAlert('✅ '+d.message+' Обновите через 1-2 мин.','success');
-  } catch(e) { showAlert('Ошибка: '+e.message); }
-  finally { btns.forEach(b=>{b.disabled=false;b.textContent=b.id==='analyzeBtn2'?'⚡ Анализировать переписки':'⚡ Анализировать всё'}); }
+  } catch(e){showAlert('Ошибка: '+e.message);}
+  finally{btns.forEach(b=>{b.disabled=false;b.textContent=b.id==='analyzeBtn2'?'⚡ Анализировать переписки':'⚡ Анализировать всё'});}
 }
 
 async function runAudit() {
-  const date = document.getElementById('dateInput').value;
+  const date=document.getElementById('dateInput').value;
   document.getElementById('auditBtn').disabled=true;
   document.getElementById('auditLoading').style.display='block';
   document.getElementById('auditResults').style.display='none';
   try {
-    const r = await fetch(`/api/audit?period=${period}&date=${date}`);
-    const d = await r.json();
+    const r=await fetch(`/api/audit?period=${period}&date=${date}`);
+    const d=await r.json();
     if(d.error) throw new Error(d.error);
     renderAudit(d);
-  } catch(e) { showAlert('Ошибка: '+e.message); }
-  finally { document.getElementById('auditBtn').disabled=false; document.getElementById('auditLoading').style.display='none'; }
+  } catch(e){showAlert('Ошибка: '+e.message);}
+  finally{document.getElementById('auditBtn').disabled=false;document.getElementById('auditLoading').style.display='none';}
 }
 
 function renderAudit(d) {
   document.getElementById('auditResults').style.display='block';
-  document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card purple"><div class="stat-label">Лидов в AMO</div><div class="stat-value">${d.amo.totalLeads.toLocaleString()}</div></div>
-    <div class="stat-card green"><div class="stat-label">Переписок</div><div class="stat-value">${d.conversations.total}</div></div>
-    <div class="stat-card yellow"><div class="stat-label">Проанализировано</div><div class="stat-value">${d.conversations.analyzed}</div></div>
-    <div class="stat-card"><div class="stat-label">Звонков</div><div class="stat-value">${d.calls.total}</div></div>
+  document.getElementById('statsGrid').innerHTML=`
+    <div class="stat-card purple"><div class="stat-label">Лидов AMO</div><div class="stat-value">${d.amo.totalLeads.toLocaleString()}</div></div>
+    <div class="stat-card orange"><div class="stat-label">Звонков</div><div class="stat-value">${d.calls.total}</div><div class="stat-sub">транскриб: ${d.calls.withTranscript||0} · ан: ${d.calls.analyzed}</div></div>
+    <div class="stat-card ${d.calls.avgScore>=7?'green':d.calls.avgScore>=4?'yellow':'red'}"><div class="stat-label">Ср. балл звонков</div><div class="stat-value">${d.calls.avgScore||'—'}</div><div class="stat-sub">из 10</div></div>
+    <div class="stat-card green"><div class="stat-label">Переписок</div><div class="stat-value">${d.conversations.total}</div><div class="stat-sub">проан: ${d.conversations.analyzed}</div></div>
   `;
-  const callsEl = document.getElementById('callsList');
-  callsEl.innerHTML = !d.recentCalls?.length
-    ? '<div class="empty">📞 Нет звонков</div>'
+
+  document.getElementById('callsCount').textContent=d.calls.total+' звонков';
+  document.getElementById('callsList').innerHTML = !d.recentCalls?.length
+    ? '<div class="empty">📞 Нет звонков.<br>Нажмите «📞 Синхр. звонки»</div>'
     : d.recentCalls.map(c=>`<div class="conv-row">
-        <div><div class="conv-name">${c.manager||'—'}</div><div class="conv-meta">${c.phone} · ${c.date}</div></div>
-        <div style="text-align:right">${c.analysis?`<span class="tag ${tagClass(c.analysis.result)}">${c.analysis.result}</span><br><small style="color:#6060a0">⭐${c.analysis.score}/10</small>`:'<span style="color:#6060a0;font-size:12px">Ожидает</span>'}</div>
+        <div>
+          <div class="conv-name">${c.manager||'Определяется...'}</div>
+          <div class="conv-meta">
+            <span class="${c.direction==='in'?'direction-in':'direction-out'}">${c.direction==='in'?'↙ входящий':'↗ исходящий'}</span>
+            · ${c.phone} · ${c.date}
+          </div>
+          ${c.hasTranscript?'<div style="font-size:11px;color:#6060a0;margin-top:2px">✓ транскрибирован</div>':'<div style="font-size:11px;color:#ff9a3c;margin-top:2px">⏳ ожидает транскрипции</div>'}
+        </div>
+        <div style="text-align:right">${c.analysis
+          ?`<span class="tag ${tagClass(c.analysis.result)}">${c.analysis.result}</span><br><small style="color:#6060a0">⭐${c.analysis.score}/10</small>`
+          :'<span style="color:#6060a0;font-size:11px">—</span>'}</div>
       </div>`).join('');
-  document.getElementById('convsCount').textContent = d.conversations.total+' чатов';
+
+  document.getElementById('convsCount').textContent=d.conversations.total+' чатов';
   document.getElementById('convsList').innerHTML = !d.recentConversations?.length
-    ? '<div class="empty">💬 Нет переписок</div>'
+    ? '<div class="empty">💬 Нет переписок за период</div>'
     : d.recentConversations.map(c=>{
-        let html='<span style="color:#6060a0;font-size:11px">Нажмите «Анализировать»</span>';
+        let html='<span style="color:#6060a0;font-size:11px">не проан.</span>';
         if(c.analysis){try{const a=JSON.parse(c.analysis);html=`<span class="tag ${tagClass(a.result)}">${a.result}</span><br><small style="color:#6060a0">⭐${a.score}/10</small>`}catch(e){}}
         return `<div class="conv-row">
-          <div><div class="conv-name">${c.contact_name||c.contact_phone}</div><div class="conv-meta">${c.manager_name||'—'} · ${c.messages_count} сообщ.</div></div>
+          <div><div class="conv-name">${c.contact_name||c.contact_phone}</div><div class="conv-meta">${c.manager_name||'—'} · ${c.messages_count} сообщ. · ${c.lastDate}</div></div>
           <div style="text-align:right">${html}</div>
         </div>`;
       }).join('');
@@ -248,81 +267,74 @@ async function loadManagers() {
   document.getElementById('mgrLoading').style.display='block';
   document.getElementById('mgrResults').innerHTML='';
   try {
-    const r = await fetch('/api/manager-report');
-    const d = await r.json();
+    const r=await fetch('/api/manager-report');
+    const d=await r.json();
     renderManagers(d);
-  } catch(e) {
+  } catch(e){
     document.getElementById('mgrResults').innerHTML=`<div class="alert alert-info">Ошибка: ${e.message}</div>`;
-  } finally {
+  } finally{
     document.getElementById('loadBtn').disabled=false;
     document.getElementById('mgrLoading').style.display='none';
   }
 }
 
 function renderManagers(d) {
-  const el = document.getElementById('mgrResults');
-  if(!d.managers?.length) {
-    el.innerHTML='<div class="empty" style="padding:60px">👥 Нет данных.<br><br>Нажмите «⚡ Анализировать переписки», подождите 2 мин и загрузите снова.</div>';
+  const el=document.getElementById('mgrResults');
+  if(!d.managers?.length){
+    el.innerHTML='<div class="empty" style="padding:60px">👥 Нет данных.<br><br>1. Нажмите «📞 Синхр. звонки» на вкладке Аудит<br>2. Подождите 5-10 минут (транскрипция)<br>3. Нажмите «⚡ Анализировать переписки»<br>4. Вернитесь сюда</div>';
     return;
   }
+  const avgAll = d.managers.length?(d.managers.reduce((s,m)=>s+m.avgScore,0)/d.managers.length).toFixed(1):'—';
+  const totalSold = d.managers.reduce((s,m)=>s+m.results.sold,0);
+  const totalAll = d.managers.reduce((s,m)=>s+m.totalInteractions,0);
 
-  const summary = `
+  el.innerHTML=`
     <div class="stats-grid" style="margin-bottom:16px">
       <div class="stat-card purple"><div class="stat-label">Менеджеров</div><div class="stat-value">${d.managers.length}</div></div>
       <div class="stat-card"><div class="stat-label">Переписок</div><div class="stat-value">${d.totalConvs}</div></div>
-      <div class="stat-card"><div class="stat-label">Звонков</div><div class="stat-value">${d.totalCalls}</div></div>
-      <div class="stat-card green"><div class="stat-label">Ср. рейтинг</div><div class="stat-value">${d.managers.length?(d.managers.reduce((s,m)=>s+m.avgScore,0)/d.managers.length).toFixed(1):'—'}</div></div>
-    </div>`;
-
-  const tableRows = d.managers.map((m, i) => {
-    const all = m.results.sold + m.results.lost + m.results.pending;
-    const conv = all ? Math.round(m.results.sold / all * 100) : 0;
-    const sc = scoreClass(m.avgScore);
-    const err1 = m.topErrors[0]||'—';
-    const err2 = m.topErrors[1]||'—';
-    const str1 = m.topStrengths[0]||'—';
-    const rec  = m.lastRecommendation||'—';
-    return `<tr>
-      <td class="center rank">${i+1}</td>
-      <td><div class="manager-name">${m.name}</div></td>
-      <td class="center">
-        <div class="score-cell ${sc}">${m.avgScore}</div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${m.avgScore*10}%"></div></div>
-      </td>
-      <td class="center">${m.convs}</td>
-      <td class="center">${m.calls}</td>
-      <td class="center"><span class="result-badge rb-green">✅ ${m.results.sold}</span></td>
-      <td class="center"><span class="result-badge rb-red">❌ ${m.results.lost}</span></td>
-      <td class="center"><span class="result-badge rb-yellow">⏳ ${m.results.pending}</span></td>
-      <td class="center"><span class="conv-pct">${conv}%</span></td>
-      <td><span class="error-tag">${err1}</span></td>
-      <td><span class="error-tag">${err2}</span></td>
-      <td><span class="str-tag">${str1}</span></td>
-      <td><div class="rec-text">${rec}</div></td>
-    </tr>`;
-  }).join('');
-
-  el.innerHTML = summary + `
+      <div class="stat-card orange"><div class="stat-label">Звонков</div><div class="stat-value">${d.totalCalls}</div></div>
+      <div class="stat-card ${avgAll>=7?'green':avgAll>=4?'yellow':'red'}"><div class="stat-label">Ср. рейтинг</div><div class="stat-value">${avgAll}</div></div>
+      <div class="stat-card green"><div class="stat-label">Общая конверсия</div><div class="stat-value">${totalAll?Math.round(totalSold/totalAll*100):0}%</div></div>
+    </div>
     <div class="table-wrap">
       <table>
-        <thead>
-          <tr>
-            <th class="center">#</th>
-            <th>Менеджер</th>
-            <th class="center">Рейтинг<br>0–10</th>
-            <th class="center">Перепис.</th>
-            <th class="center">Звонки</th>
-            <th class="center">Продал</th>
-            <th class="center">Не продал</th>
-            <th class="center">В процессе</th>
-            <th class="center">Конверсия</th>
-            <th>Ошибка #1</th>
-            <th>Ошибка #2</th>
-            <th>Сильная сторона</th>
-            <th>Рекомендация</th>
-          </tr>
-        </thead>
-        <tbody>${tableRows}</tbody>
+        <thead><tr>
+          <th class="center">#</th>
+          <th>Менеджер</th>
+          <th class="center">Рейтинг<br>0–10</th>
+          <th class="center">Перепис.</th>
+          <th class="center">Звонки</th>
+          <th class="center">Продал</th>
+          <th class="center">Не продал</th>
+          <th class="center">В процессе</th>
+          <th class="center">Конверсия</th>
+          <th>Ошибка #1</th>
+          <th>Ошибка #2</th>
+          <th>Сильная сторона</th>
+          <th>Рекомендация</th>
+        </tr></thead>
+        <tbody>${d.managers.map((m,i)=>{
+          const all=m.results.sold+m.results.lost+m.results.pending;
+          const conv=all?Math.round(m.results.sold/all*100):0;
+          return `<tr>
+            <td class="center" style="color:#6060a0;font-size:12px">${i+1}</td>
+            <td><div class="manager-name">${m.name}</div><div style="font-size:11px;color:#6060a0">${m.convs} перепис. · ${m.calls} звонков</div></td>
+            <td class="center">
+              <div class="score-cell ${scoreClass(m.avgScore)}">${m.avgScore}</div>
+              <div class="progress-bar"><div class="progress-fill" style="width:${m.avgScore*10}%"></div></div>
+            </td>
+            <td class="center">${m.convs}</td>
+            <td class="center">${m.calls}</td>
+            <td class="center"><span class="result-badge rb-green">✅ ${m.results.sold}</span></td>
+            <td class="center"><span class="result-badge rb-red">❌ ${m.results.lost}</span></td>
+            <td class="center"><span class="result-badge rb-yellow">⏳ ${m.results.pending}</span></td>
+            <td class="center"><span class="conv-pct">${conv}%</span></td>
+            <td><span class="error-tag">${m.topErrors[0]||'—'}</span></td>
+            <td><span class="error-tag">${m.topErrors[1]||'—'}</span></td>
+            <td><span class="str-tag">${m.topStrengths[0]||'—'}</span></td>
+            <td><div class="rec-text">${m.lastRecommendation||'—'}</div></td>
+          </tr>`;
+        }).join('')}</tbody>
       </table>
     </div>`;
 }
