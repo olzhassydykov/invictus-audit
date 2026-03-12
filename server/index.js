@@ -353,4 +353,131 @@ app.get('/api/debug/conversations', async (req, res) => {
   res.json(rows);
 });
 
+
+// ─── API: ANALYZE ALL CONVERSATIONS ──────────────────────────────────────────
+app.post('/api/analyze-all', async (req, res) => {
+  try {
+    const conversations = await new Promise((resolve) => {
+      db.all(`SELECT * FROM conversations WHERE analysis IS NULL ORDER BY messages_count DESC LIMIT 50`,
+        (err, rows) => resolve(rows || []));
+    });
+
+    if (!conversations.length) return res.json({ ok: true, analyzed: 0, message: 'Все уже проанализированы' });
+
+    res.json({ ok: true, total: conversations.length, message: 'Анализ запущен в фоне' });
+
+    // Анализируем в фоне
+    (async () => {
+      for (const conv of conversations) {
+        try {
+          const messages = await new Promise((resolve) => {
+            db.all(`SELECT * FROM messages WHERE chat_id = ? ORDER BY timestamp ASC`, [conv.chat_id],
+              (err, rows) => resolve(rows || []));
+          });
+
+          if (!messages.length) continue;
+
+          const transcript = messages.map(m =>
+            `${m.direction === 'out' ? 'Менеджер' : 'Клиент'}: ${m.text}`
+          ).join('\n');
+
+          const analysis = await claudeAnalyze(`
+Ты — аудитор отдела продаж фитнес-клуба Invictus GO (Алматы).
+Проанализируй переписку WhatsApp с клиентом "${conv.contact_name}".
+
+ПЕРЕПИСКА:
+${transcript.slice(0, 3000)}
+
+Ответь ТОЛЬКО в JSON без markdown:
+{
+  "score": число от 1 до 10,
+  "result": "продал" | "не продал" | "перезвонит" | "думает",
+  "client_interest": "высокий" | "средний" | "низкий",
+  "errors": ["ошибка 1"],
+  "strengths": ["сильная сторона 1"],
+  "loss_reason": "причина если не продал или null",
+  "recommendation": "конкретный совет менеджеру"
+}`);
+
+          db.run(`UPDATE conversations SET analysis = ?, analyzed_at = CURRENT_TIMESTAMP WHERE chat_id = ?`,
+            [analysis, conv.chat_id]);
+
+          await new Promise(r => setTimeout(r, 500)); // пауза между запросами
+        } catch(e) {
+          console.error('Analysis error for', conv.chat_id, e.message);
+        }
+      }
+      console.log('Background analysis complete');
+    })();
+
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── API: MANAGER REPORT ──────────────────────────────────────────────────────
+app.get('/api/manager-report', async (req, res) => {
+  try {
+    const conversations = await new Promise((resolve) => {
+      db.all(`SELECT * FROM conversations WHERE analysis IS NOT NULL`, (err, rows) => resolve(rows || []));
+    });
+
+    const calls = await new Promise((resolve) => {
+      db.all(`SELECT * FROM calls WHERE analysis IS NOT NULL`, (err, rows) => resolve(rows || []));
+    });
+
+    // Группируем по менеджерам
+    const managers = {};
+
+    for (const conv of conversations) {
+      const name = conv.manager_name || 'Неизвестно';
+      if (!managers[name]) managers[name] = { name, convs: [], calls: [], scores: [], errors: [], strengths: [] };
+      try {
+        const a = JSON.parse(conv.analysis);
+        managers[name].convs.push({ contact: conv.contact_name, ...a });
+        managers[name].scores.push(a.score || 0);
+        if (a.errors) managers[name].errors.push(...a.errors);
+        if (a.strengths) managers[name].strengths.push(...a.strengths);
+      } catch(e) {}
+    }
+
+    for (const call of calls) {
+      const name = call.manager_name || 'Неизвестно';
+      if (!managers[name]) managers[name] = { name, convs: [], calls: [], scores: [], errors: [], strengths: [] };
+      try {
+        const a = JSON.parse(call.analysis);
+        managers[name].calls.push({ phone: call.contact_phone, ...a });
+        managers[name].scores.push(a.score || 0);
+        if (a.errors) managers[name].errors.push(...a.errors);
+        if (a.strengths) managers[name].strengths.push(...a.strengths);
+      } catch(e) {}
+    }
+
+    // Считаем итоги
+    const report = Object.values(managers).map(m => {
+      const avgScore = m.scores.length ? (m.scores.reduce((a,b) => a+b, 0) / m.scores.length).toFixed(1) : 0;
+      const topErrors = [...new Set(m.errors)].slice(0, 5);
+      const topStrengths = [...new Set(m.strengths)].slice(0, 3);
+      return {
+        name: m.name,
+        totalInteractions: m.convs.length + m.calls.length,
+        convs: m.convs.length,
+        calls: m.calls.length,
+        avgScore,
+        topErrors,
+        topStrengths,
+        results: {
+          sold: [...m.convs, ...m.calls].filter(x => x.result === 'продал').length,
+          lost: [...m.convs, ...m.calls].filter(x => x.result === 'не продал').length,
+          pending: [...m.convs, ...m.calls].filter(x => ['перезвонит','думает'].includes(x.result)).length,
+        }
+      };
+    }).sort((a, b) => b.avgScore - a.avgScore);
+
+    res.json({ managers: report, totalConvs: conversations.length, totalCalls: calls.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(PORT, () => console.log(`🚀 Invictus Audit на порту ${PORT}`));
