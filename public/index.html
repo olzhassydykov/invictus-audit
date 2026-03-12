@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invictus GO — Аудит продаж</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+
+  .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 20px 30px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2a2a4a; }
+  .logo { font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 1px; }
+  .logo span { color: #6c63ff; }
+  .status-dot { width: 10px; height: 10px; background: #00d4aa; border-radius: 50%; display: inline-block; margin-right: 8px; box-shadow: 0 0 8px #00d4aa; }
+
+  .main { padding: 30px; max-width: 1400px; margin: 0 auto; }
+
+  .controls { display: flex; gap: 12px; margin-bottom: 30px; flex-wrap: wrap; align-items: center; }
+  .btn { padding: 12px 24px; border: none; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 600; transition: all 0.2s; }
+  .btn-primary { background: linear-gradient(135deg, #6c63ff, #5a52d5); color: #fff; }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(108,99,255,0.4); }
+  .btn-secondary { background: #1e1e35; color: #a0a0c0; border: 1px solid #2a2a4a; }
+  .btn-secondary:hover { border-color: #6c63ff; color: #fff; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  input[type="date"] { background: #1e1e35; border: 1px solid #2a2a4a; color: #e0e0e0; padding: 12px 16px; border-radius: 10px; font-size: 15px; }
+
+  .period-selector { display: flex; gap: 4px; background: #1e1e35; padding: 4px; border-radius: 10px; border: 1px solid #2a2a4a; }
+  .period-btn { padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; background: transparent; color: #a0a0c0; transition: all 0.2s; }
+  .period-btn.active { background: #6c63ff; color: #fff; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 30px; }
+  .stat-card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 14px; padding: 20px; }
+  .stat-label { font-size: 12px; color: #6060a0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .stat-value { font-size: 32px; font-weight: 700; color: #fff; }
+  .stat-sub { font-size: 12px; color: #6060a0; margin-top: 4px; }
+  .stat-card.green { border-color: #00d4aa33; }
+  .stat-card.green .stat-value { color: #00d4aa; }
+  .stat-card.yellow { border-color: #ffd60033; }
+  .stat-card.yellow .stat-value { color: #ffd600; }
+  .stat-card.red { border-color: #ff4d6d33; }
+  .stat-card.red .stat-value { color: #ff4d6d; }
+  .stat-card.purple { border-color: #6c63ff33; }
+  .stat-card.purple .stat-value { color: #6c63ff; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 14px; padding: 24px; }
+  .card-title { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+  .card-title .icon { font-size: 20px; }
+
+  .manager-row { display: flex; align-items: center; padding: 12px 0; border-bottom: 1px solid #1e1e35; }
+  .manager-row:last-child { border-bottom: none; }
+  .manager-name { flex: 1; font-weight: 500; }
+  .manager-calls { color: #6060a0; font-size: 14px; margin-right: 16px; }
+  .score-badge { padding: 4px 12px; border-radius: 20px; font-size: 14px; font-weight: 700; }
+  .score-high { background: #00d4aa22; color: #00d4aa; }
+  .score-mid { background: #ffd60022; color: #ffd600; }
+  .score-low { background: #ff4d6d22; color: #ff4d6d; }
+
+  .call-row { padding: 14px; border-radius: 10px; background: #0f0f1a; margin-bottom: 8px; }
+  .call-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .call-manager { font-weight: 600; font-size: 15px; }
+  .call-phone { color: #6060a0; font-size: 13px; }
+  .call-date { color: #6060a0; font-size: 13px; }
+  .call-analysis { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tag { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+  .tag-blue { background: #6c63ff22; color: #6c63ff; }
+  .tag-green { background: #00d4aa22; color: #00d4aa; }
+  .tag-red { background: #ff4d6d22; color: #ff4d6d; }
+  .tag-yellow { background: #ffd60022; color: #ffd600; }
+
+  .errors-list { margin-top: 8px; }
+  .error-item { font-size: 12px; color: #ff4d6d; margin-bottom: 2px; }
+  .error-item::before { content: "⚠ "; }
+
+  .loading { text-align: center; padding: 60px; color: #6060a0; }
+  .spinner { width: 40px; height: 40px; border: 3px solid #2a2a4a; border-top-color: #6c63ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty { text-align: center; padding: 40px; color: #6060a0; }
+  .empty-icon { font-size: 40px; margin-bottom: 12px; }
+
+  .webhook-info { background: #1e1e35; border: 1px solid #2a2a4a; border-radius: 10px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #a0a0c0; }
+  .webhook-url { background: #0f0f1a; padding: 8px 12px; border-radius: 6px; font-family: monospace; color: #6c63ff; margin-top: 8px; word-break: break-all; }
+
+  .alert { padding: 12px 16px; border-radius: 10px; margin-bottom: 20px; font-size: 14px; }
+  .alert-info { background: #6c63ff15; border: 1px solid #6c63ff33; color: #a0a0ff; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">INVICTUS <span>GO</span> — Аудит</div>
+  <div style="font-size:13px; color:#6060a0;">
+    <span class="status-dot"></span>Система активна
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- Webhook info -->
+  <div class="webhook-info">
+    📡 <strong>Wazzup вебхук:</strong> отправляйте переписки на
+    <div class="webhook-url" id="webhookUrl">Загрузка...</div>
+    📞 <strong>Звонки (Yandex транскрипция):</strong>
+    <div class="webhook-url" id="callsUrl">Загрузка...</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="period-selector">
+      <button class="period-btn active" onclick="setPeriod('day')" id="btn-day">День</button>
+      <button class="period-btn" onclick="setPeriod('month')" id="btn-month">Месяц</button>
+    </div>
+    <input type="date" id="dateInput" value="">
+    <button class="btn btn-primary" onclick="runAudit()" id="auditBtn">
+      🔍 Запустить аудит
+    </button>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading" id="loading" style="display:none;">
+    <div class="spinner"></div>
+    Анализируем данные...
+  </div>
+
+  <!-- Results -->
+  <div id="results" style="display:none;">
+
+    <!-- Stats -->
+    <div class="stats-grid" id="statsGrid"></div>
+
+    <!-- Grid -->
+    <div class="grid-2">
+      <!-- Managers -->
+      <div class="card">
+        <div class="card-title"><span class="icon">👥</span> Рейтинг менеджеров (звонки)</div>
+        <div id="managersList"></div>
+      </div>
+
+      <!-- Calls -->
+      <div class="card">
+        <div class="card-title"><span class="icon">📞</span> Последние звонки</div>
+        <div id="callsList"></div>
+      </div>
+    </div>
+
+    <!-- Conversations -->
+    <div class="card">
+      <div class="card-title"><span class="icon">💬</span> Переписки WhatsApp</div>
+      <div id="convsList"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+let currentPeriod = 'day';
+
+// Set webhook URLs
+const base = window.location.origin;
+document.getElementById('webhookUrl').textContent = base + '/webhook/wazzup';
+document.getElementById('callsUrl').textContent = base + '/webhook/call';
+
+// Set today's date
+const today = new Date().toISOString().split('T')[0];
+document.getElementById('dateInput').value = today;
+
+function setPeriod(p) {
+  currentPeriod = p;
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + p).classList.add('active');
+}
+
+function getScoreClass(score) {
+  if (score >= 7) return 'score-high';
+  if (score >= 4) return 'score-mid';
+  return 'score-low';
+}
+
+function getTagClass(result) {
+  if (result === 'продал') return 'tag-green';
+  if (result === 'не продал') return 'tag-red';
+  if (result === 'перезвонит') return 'tag-yellow';
+  return 'tag-blue';
+}
+
+async function runAudit() {
+  const date = document.getElementById('dateInput').value;
+  const btn = document.getElementById('auditBtn');
+
+  btn.disabled = true;
+  btn.textContent = 'Анализируем...';
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('results').style.display = 'none';
+
+  try {
+    const res = await fetch(`/api/audit?period=${currentPeriod}&date=${date}`);
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error);
+
+    renderResults(data);
+  } catch (e) {
+    alert('Ошибка: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 Запустить аудит';
+    document.getElementById('loading').style.display = 'none';
+  }
+}
+
+function renderResults(data) {
+  document.getElementById('results').style.display = 'block';
+
+  // Stats
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card purple">
+      <div class="stat-label">Лидов в AMO</div>
+      <div class="stat-value">${data.amo.totalLeads.toLocaleString()}</div>
+      <div class="stat-sub">${data.dateFrom} — ${data.dateTo}</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">Звонков проанализировано</div>
+      <div class="stat-value">${data.calls.analyzed}</div>
+      <div class="stat-sub">из ${data.calls.total} всего</div>
+    </div>
+    <div class="stat-card ${data.calls.avgScore >= 7 ? 'green' : data.calls.avgScore >= 4 ? 'yellow' : 'red'}">
+      <div class="stat-label">Средний балл звонков</div>
+      <div class="stat-value">${data.calls.avgScore || '—'}</div>
+      <div class="stat-sub">из 10 возможных</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Переписок WhatsApp</div>
+      <div class="stat-value">${data.conversations.total}</div>
+      <div class="stat-sub">проанализировано: ${data.conversations.analyzed}</div>
+    </div>
+  `;
+
+  // Managers
+  const managersEl = document.getElementById('managersList');
+  if (!data.managerSummary?.length) {
+    managersEl.innerHTML = '<div class="empty"><div class="empty-icon">📊</div>Нет данных по звонкам.<br>Подключите вебхук звонков.</div>';
+  } else {
+    managersEl.innerHTML = data.managerSummary.map(m => `
+      <div class="manager-row">
+        <div class="manager-name">${m.name}</div>
+        <div class="manager-calls">${m.calls} зв.</div>
+        <div class="score-badge ${getScoreClass(m.avgScore)}">${m.avgScore}/10</div>
+      </div>
+      ${m.topErrors?.length ? `<div class="errors-list">${m.topErrors.map(e => `<div class="error-item">${e}</div>`).join('')}</div>` : ''}
+    `).join('');
+  }
+
+  // Calls
+  const callsEl = document.getElementById('callsList');
+  if (!data.recentCalls?.length) {
+    callsEl.innerHTML = '<div class="empty"><div class="empty-icon">📞</div>Нет звонков за период.<br>Ожидаем транскрипции от Yandex.</div>';
+  } else {
+    callsEl.innerHTML = data.recentCalls.map(c => `
+      <div class="call-row">
+        <div class="call-header">
+          <span class="call-manager">${c.manager || '—'}</span>
+          <span class="call-date">${c.date} · ${Math.floor((c.duration||0)/60)}м${(c.duration||0)%60}с</span>
+        </div>
+        <div class="call-phone">${c.phone || ''}</div>
+        ${c.analysis ? `
+        <div class="call-analysis" style="margin-top:8px;">
+          <span class="tag ${getTagClass(c.analysis.result)}">${c.analysis.result}</span>
+          <span class="tag tag-blue">⭐ ${c.analysis.score}/10</span>
+          <span class="tag tag-blue">${c.analysis.client_interest} интерес</span>
+        </div>
+        ${c.analysis.recommendation ? `<div style="font-size:12px;color:#a0a0c0;margin-top:6px;">💡 ${c.analysis.recommendation}</div>` : ''}
+        ` : '<div style="font-size:12px;color:#6060a0;margin-top:4px;">Анализ в очереди...</div>'}
+      </div>
+    `).join('');
+  }
+
+  // Conversations
+  const convsEl = document.getElementById('convsList');
+  if (!data.recentConversations?.length) {
+    convsEl.innerHTML = '<div class="empty"><div class="empty-icon">💬</div>Нет переписок.<br>Настройте вебхук Wazzup — URL указан выше.</div>';
+  } else {
+    convsEl.innerHTML = data.recentConversations.map(c => `
+      <div class="call-row">
+        <div class="call-header">
+          <span class="call-manager">${c.contact_name || c.contact_phone}</span>
+          <span class="call-date">${c.messages_count} сообщений</span>
+        </div>
+        ${c.analysis ? (() => {
+          try {
+            const a = JSON.parse(c.analysis);
+            return `<div class="call-analysis">
+              <span class="tag ${getTagClass(a.result)}">${a.result}</span>
+              <span class="tag tag-blue">⭐ ${a.score}/10</span>
+            </div>`;
+          } catch(e) { return ''; }
+        })() : `<button onclick="analyzeConv('${c.chat_id}')" class="btn btn-secondary" style="margin-top:8px;padding:6px 14px;font-size:13px;">Анализировать</button>`}
+      </div>
+    `).join('');
+  }
+}
+
+async function analyzeConv(chatId) {
+  try {
+    const res = await fetch('/api/analyze-conversation/' + chatId, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      alert('✅ Анализ готов! Обновите аудит.');
+    }
+  } catch (e) {
+    alert('Ошибка: ' + e.message);
+  }
+}
+</script>
+</body>
+</html>
