@@ -1,6 +1,6 @@
 const express = require('express');
 const axios = require('axios');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs');
 const FormData = require('form-data');
@@ -9,248 +9,85 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
-const AMO_TOKEN = (process.env.AMO_TOKEN || '').trim();
-const AMO_DOMAIN = process.env.AMO_DOMAIN || 'invictusgo.amocrm.ru';
+const AMO_TOKEN     = (process.env.AMO_TOKEN || '').trim();
+const AMO_DOMAIN    = process.env.AMO_DOMAIN || 'invictusgo.amocrm.ru';
 const ANTHROPIC_KEY = (process.env.ANTHROPIC_KEY || '').trim();
-const GROQ_KEY = process.env.GROQ_KEY || '';
-const WAZZUP_KEY = process.env.WAZZUP_KEY;
+const GROQ_KEY      = process.env.GROQ_KEY || '';
+const WAZZUP_KEY    = process.env.WAZZUP_KEY;
 const CALLS_BASE_URL = 'https://op.entryx.io/amo/monitor';
 const PORT = process.env.PORT || 3001;
 
-const db = new sqlite3.Database('./audit.db');
-
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    chat_id TEXT, wazzup_message_id TEXT UNIQUE, channel_id TEXT,
-    contact_name TEXT, contact_phone TEXT, manager_name TEXT, lead_id TEXT,
-    direction TEXT, text TEXT, timestamp INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  db.run(`CREATE TABLE IF NOT EXISTS conversations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    chat_id TEXT UNIQUE, lead_id TEXT, manager_name TEXT,
-    contact_name TEXT, contact_phone TEXT,
-    last_message_at INTEGER, messages_count INTEGER DEFAULT 0,
-    analysis TEXT, analyzed_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  db.run(`CREATE TABLE IF NOT EXISTS calls (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    call_id TEXT UNIQUE, manager_name TEXT, lead_id TEXT,
-    contact_phone TEXT, duration INTEGER, direction TEXT,
-    file_url TEXT, transcript TEXT, analysis TEXT, called_at INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  db.run(`CREATE TABLE IF NOT EXISTS audits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    period TEXT, date_from TEXT, date_to TEXT, report TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
 });
 
-// Канал → номер (для определения входящий/исходящий)
-const CHANNELS = {
-  '87005001099': 'Invictus GO',
-  '87005001702': 'Invictus GO 2',
-};
+async function initDB() {
+  await pool.query(`CREATE TABLE IF NOT EXISTS messages (
+    id SERIAL PRIMARY KEY, chat_id TEXT, wazzup_message_id TEXT UNIQUE,
+    channel_id TEXT, contact_name TEXT, contact_phone TEXT, manager_name TEXT,
+    lead_id TEXT, direction TEXT, text TEXT, timestamp BIGINT,
+    created_at TIMESTAMP DEFAULT NOW())`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS conversations (
+    id SERIAL PRIMARY KEY, chat_id TEXT UNIQUE, lead_id TEXT, manager_name TEXT,
+    contact_name TEXT, contact_phone TEXT, last_message_at BIGINT,
+    messages_count INTEGER DEFAULT 0, analysis TEXT, analyzed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW())`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS calls (
+    id SERIAL PRIMARY KEY, call_id TEXT UNIQUE, manager_name TEXT, lead_id TEXT,
+    contact_phone TEXT, duration INTEGER, direction TEXT, file_url TEXT,
+    transcript TEXT, analysis TEXT, called_at BIGINT,
+    created_at TIMESTAMP DEFAULT NOW())`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS audits (
+    id SERIAL PRIMARY KEY, period TEXT, date_from TEXT, date_to TEXT,
+    report TEXT, created_at TIMESTAMP DEFAULT NOW())`);
+  console.log('PostgreSQL ready');
+}
+initDB().catch(e => console.error('DB init error:', e.message));
 
 const MANAGERS = {
   '2044417':'Танеке','2150484':'Айгерим','7158001':'Администратор',
-  '7207546':'Акжол','7270360':'Дильназ','7616848':'Гания',
-  '7616944':'Дайана','7617028':'Фуад','7617046':'Илья',
-  '7617088':'Никита','7617100':'Диана','8945498':'Navoi',
-  '8945674':'Айгера','8945678':'Айдай','9473638':'Милана',
-  '10158750':'Айдана','10757002':'Алишер','10920190':'Аятолла',
-  '11028126':'Дамир','11179978':'Есей','11237754':'Жасулан',
-  '11252562':'Каракат','12062466':'Дильнара',
-  '12062502':'Амина','13526610':'Александр','13526650':'Айдана2',
-  '13529206':'Диана2','13552546':'Диас','13565310':'Назир',
-  '13586134':'Есей2','11428894':'Гульден'
+  '7207546':'Акжол','7270360':'Дильназ','7616848':'Гания','7616944':'Дайана',
+  '7617028':'Фуад','7617046':'Илья','7617088':'Никита','7617100':'Диана',
+  '8945498':'Navoi','8945674':'Айгера','8945678':'Айдай','9473638':'Милана',
+  '10158750':'Айдана','10757002':'Алишер','10920190':'Аятолла','11028126':'Дамир',
+  '11179978':'Есей','11237754':'Жасулан','11252562':'Каракат','11428894':'Гульден',
+  '12062466':'Дильнара','12062502':'Амина','13526610':'Александр','13526650':'Айдана2',
+  '13529206':'Диана2','13552546':'Диас','13565310':'Назир','13586134':'Есей2'
 };
 
-function toSeconds(ts) {
-  if (!ts) return Math.floor(Date.now() / 1000);
-  return ts > 9999999999 ? Math.floor(ts / 1000) : ts;
+const JUNK = ['редактор субтитров','dimatorzok','субтитры делал','субтитры добавил',
+  'продолжение следует','все линии заняты','абонент не может ответить',
+  'пока абонент не отвечает','вызываемый абонент','телефонный звонок',
+  'до новых встреч','спасибо за субтитры','оставьте голосовое',
+  'дубровск','синецкая','егорова','тorzok'];
+
+function isJunk(text) {
+  if (!text || text.length < 30) return true;
+  const t = text.toLowerCase();
+  return JUNK.some(j => t.includes(j));
 }
 
-async function amoGet(path) {
-  const res = await axios.get(`https://${AMO_DOMAIN}/api/v4${path}`, {
-    headers: { Authorization: `Bearer ${AMO_TOKEN}` }, timeout: 15000
-  });
+function toSeconds(ts) {
+  if (!ts) return Math.floor(Date.now()/1000);
+  return ts > 9999999999 ? Math.floor(ts/1000) : ts;
+}
+
+async function amoGet(p) {
+  const res = await axios.get(`https://${AMO_DOMAIN}/api/v4${p}`,
+    { headers: { Authorization: `Bearer ${AMO_TOKEN}` }, timeout: 15000 });
   return res.data;
 }
 
 async function claudeAnalyze(prompt) {
   const res = await axios.post('https://api.anthropic.com/v1/messages', {
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1000,
+    model: 'claude-sonnet-4-20250514', max_tokens: 1000,
     messages: [{ role: 'user', content: prompt }]
   }, {
-    headers: {
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json'
-    },
+    headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
     timeout: 30000
   });
   return res.data.content[0].text;
-}
-
-// ─── GROQ WHISPER TRANSCRIPTION ──────────────────────────────────────────────
-async function transcribeAudio(wavUrl) {
-  // Скачиваем WAV во временный файл
-  const tmpPath = `/tmp/call_${Date.now()}.wav`;
-  try {
-    const response = await axios.get(wavUrl, { responseType: 'arraybuffer', timeout: 60000 });
-    fs.writeFileSync(tmpPath, Buffer.from(response.data));
-
-    const form = new FormData();
-    form.append('file', fs.createReadStream(tmpPath), { filename: 'audio.wav', contentType: 'audio/wav' });
-    form.append('model', 'whisper-large-v3');
-    form.append('language', 'ru');
-    form.append('response_format', 'text');
-
-    const res = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', form, {
-      headers: { ...form.getHeaders(), 'Authorization': `Bearer ${GROQ_KEY}` },
-      timeout: 120000
-    });
-
-    return res.data;
-  } finally {
-    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-  }
-}
-
-// ─── PARSE CALL FILENAME ──────────────────────────────────────────────────────
-// Формат: in-87005001099-+77010103152-20260312-111144-1773295904.3233695.wav
-function parseCallFilename(filename) {
-  const name = filename.replace('.wav', '');
-  const parts = name.split('-');
-  // parts[0] = direction (in/out)
-  // parts[1] = channel
-  // parts[2] = phone (с +)
-  // parts[3] = date YYYYMMDD
-  // parts[4] = time HHMMSS
-  // parts[5] = call_id
-  if (parts.length < 6) return null;
-  const direction = parts[0];
-  const channel = parts[1];
-  const phone = parts[2];
-  const dateStr = parts[3]; // 20260312
-  const timeStr = parts[4]; // 111144
-  const callId = parts.slice(5).join('-');
-
-  const year = dateStr.slice(0,4), month = dateStr.slice(4,6), day = dateStr.slice(6,8);
-  const hour = timeStr.slice(0,2), min = timeStr.slice(2,4), sec = timeStr.slice(4,6);
-  const calledAt = Math.floor(new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}+05:00`).getTime() / 1000);
-
-  return { direction, channel, phone, callId, calledAt, dateStr, timeStr };
-}
-
-// ─── SYNC CALLS FROM ENTRYX ──────────────────────────────────────────────────
-async function syncCallsForDate(dateStr) {
-  // dateStr = 2026-03-12
-  const [year, month, day] = dateStr.split('-');
-  const url = `${CALLS_BASE_URL}/${year}/${month}/${day}/`;
-
-  console.log(`Syncing calls from ${url}`);
-
-  const html = (await axios.get(url, { timeout: 15000 })).data;
-
-  // Парсим href из HTML — только чистые .wav файлы, без tmp и split-каналов
-  const matches = [...html.matchAll(/href="([^"]+\.wav)"/g)];
-  const files = matches.map(m => m[1]).filter(f =>
-    !f.startsWith('?') &&
-    !f.startsWith('/') &&
-    !f.includes('__tmp__') &&
-    !f.endsWith('-in.wav') &&
-    !f.endsWith('-out.wav')
-  );
-
-  console.log(`Found ${files.length} WAV files for ${dateStr}`);
-
-  let synced = 0, skipped = 0;
-  for (const filename of files) {
-    const parsed = parseCallFilename(filename);
-    if (!parsed) continue;
-
-    // Проверяем нет ли уже в БД
-    const exists = await new Promise(r => db.get('SELECT id FROM calls WHERE call_id = ?', [parsed.callId], (e, row) => r(row)));
-    if (exists) { skipped++; continue; }
-
-    const fileUrl = `${CALLS_BASE_URL}/${year}/${month}/${day}/${filename}`;
-
-    db.run(`INSERT OR IGNORE INTO calls (call_id, contact_phone, direction, file_url, called_at)
-      VALUES (?, ?, ?, ?, ?)`,
-      [parsed.callId, parsed.phone, parsed.direction, fileUrl, parsed.calledAt]
-    );
-    synced++;
-  }
-
-  console.log(`Synced ${synced} new calls, skipped ${skipped}`);
-  return { total: files.length, synced, skipped };
-}
-
-// ─── TRANSCRIBE & ANALYZE PENDING CALLS ──────────────────────────────────────
-async function processPendingCalls(limit = 10) {
-  const calls = await new Promise(r => db.all(
-    `SELECT * FROM calls WHERE transcript IS NULL AND file_url IS NOT NULL ORDER BY called_at DESC LIMIT ?`,
-    [limit], (e, rows) => r(rows || [])
-  ));
-
-  console.log(`Processing ${calls.length} pending calls...`);
-  let processed = 0;
-
-  for (const call of calls) {
-    try {
-      console.log(`Transcribing: ${call.file_url}`);
-      const transcript = await transcribeAudio(call.file_url);
-
-      if (!transcript || transcript.trim().length < 10) {
-        db.run(`UPDATE calls SET transcript = ? WHERE id = ?`, ['[пустая запись]', call.id]);
-        continue;
-      }
-
-      // Анализируем через Claude
-      const analysis = await claudeAnalyze(`
-Ты — аудитор отдела продаж фитнес-клуба Invictus GO (Алматы).
-Клиент: ${call.contact_phone}
-Направление: ${call.direction === 'in' ? 'входящий звонок' : 'исходящий звонок'}
-
-ТРАНСКРИПЦИЯ ЗВОНКА:
-${transcript.slice(0, 4000)}
-
-Ответь ТОЛЬКО в JSON без markdown:
-{
-  "score": число от 1 до 10,
-  "result": "продал" | "не продал" | "перезвонит" | "думает",
-  "client_interest": "высокий" | "средний" | "низкий",
-  "manager_name": "имя менеджера из разговора или null",
-  "errors": ["конкретная ошибка менеджера"],
-  "strengths": ["конкретная сильная сторона"],
-  "loss_reason": "конкретная причина потери или null",
-  "recommendation": "конкретный совет менеджеру"
-}`);
-
-      // Пробуем извлечь имя менеджера из анализа
-      let managerName = call.manager_name || null;
-      try {
-        const parsed = JSON.parse(analysis);
-        if (!managerName && parsed.manager_name) managerName = parsed.manager_name;
-      } catch(e) {}
-
-      db.run(`UPDATE calls SET transcript = ?, analysis = ?, manager_name = ? WHERE id = ?`,
-        [transcript, analysis, managerName, call.id]);
-
-      processed++;
-      await new Promise(r => setTimeout(r, 500));
-    } catch(e) {
-      console.error(`Call processing error ${call.call_id}:`, e.message);
-    }
-  }
-
-  return processed;
 }
 
 // ─── WAZZUP WEBHOOK ───────────────────────────────────────────────────────────
@@ -258,426 +95,254 @@ app.post('/webhook/wazzup', async (req, res) => {
   try {
     const { messages } = req.body;
     if (!messages || !Array.isArray(messages)) return res.json({ ok: true });
-
     for (const msg of messages) {
       const { messageId, chatId, channelId, text, dateTime, contact, authorId, authorName, isEcho } = msg;
       if (!text || !text.trim()) continue;
-
       const direction = isEcho ? 'out' : 'in';
       const contactPhone = contact?.phone || chatId;
       const contactName = contact?.name || contactPhone;
-      const ts = toSeconds(dateTime ? Math.floor(new Date(dateTime).getTime() / 1000) : null);
-
+      const ts = toSeconds(dateTime ? Math.floor(new Date(dateTime).getTime()/1000) : null);
       let managerName = null;
-      if (isEcho && authorId) {
-        managerName = MANAGERS[String(authorId)] || authorName || null;
-      }
-
-      db.run(`INSERT OR IGNORE INTO messages 
-        (chat_id, wazzup_message_id, channel_id, contact_name, contact_phone, manager_name, direction, text, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [chatId, messageId, channelId, contactName, contactPhone, managerName, direction, text.trim(), ts]
-      );
-
-      db.run(`INSERT INTO conversations (chat_id, contact_name, contact_phone, manager_name, last_message_at, messages_count)
-        VALUES (?, ?, ?, ?, ?, 1)
-        ON CONFLICT(chat_id) DO UPDATE SET
-          last_message_at = excluded.last_message_at,
-          messages_count = messages_count + 1,
-          contact_name = excluded.contact_name,
-          manager_name = COALESCE(excluded.manager_name, manager_name)`,
-        [chatId, contactName, contactPhone, managerName, ts]
-      );
+      if (isEcho && authorId) managerName = MANAGERS[String(authorId)] || authorName || null;
+      await pool.query(
+        `INSERT INTO messages (chat_id,wazzup_message_id,channel_id,contact_name,contact_phone,manager_name,direction,text,timestamp)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (wazzup_message_id) DO NOTHING`,
+        [chatId,messageId,channelId,contactName,contactPhone,managerName,direction,text.trim(),ts]);
+      await pool.query(`
+        INSERT INTO conversations (chat_id,contact_name,contact_phone,manager_name,last_message_at,messages_count)
+        VALUES ($1,$2,$3,$4,$5,1)
+        ON CONFLICT (chat_id) DO UPDATE SET
+          last_message_at=EXCLUDED.last_message_at, messages_count=conversations.messages_count+1,
+          contact_name=EXCLUDED.contact_name, manager_name=COALESCE(EXCLUDED.manager_name,conversations.manager_name)`,
+        [chatId,contactName,contactPhone,managerName,ts]);
     }
     res.json({ ok: true });
-  } catch (e) {
-    console.error('Webhook error:', e.message);
-    res.json({ ok: true });
-  }
+  } catch(e) { console.error('Webhook error:', e.message); res.json({ ok: true }); }
 });
 
-// ─── WEBHOOK: MANUAL CALL ─────────────────────────────────────────────────────
+// ─── WEBHOOK: CALL (от MacBook агента) ───────────────────────────────────────
 app.post('/webhook/call', async (req, res) => {
   try {
-    const { call_id, manager_name, lead_id, contact_phone, duration, direction, transcript, called_at } = req.body;
+    const { call_id, manager_name, lead_id, contact_phone, duration, direction, transcript, called_at, file_url } = req.body;
     if (!transcript || !call_id) return res.status(400).json({ error: 'Missing fields' });
+
+    if (isJunk(transcript)) {
+      await pool.query(
+        `INSERT INTO calls (call_id,contact_phone,direction,transcript,called_at,file_url)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (call_id) DO NOTHING`,
+        [call_id, contact_phone||'unknown', direction||'out', '[мусор]', toSeconds(called_at), file_url||null]);
+      return res.json({ ok: true, skipped: true });
+    }
 
     const analysis = await claudeAnalyze(`
 Ты — аудитор отдела продаж фитнес-клуба Invictus GO (Алматы).
-Менеджер: ${manager_name}, Клиент: ${contact_phone}
-ТРАНСКРИПЦИЯ: ${transcript}
-Ответь ТОЛЬКО в JSON: { "score":1-10, "result":"продал"|"не продал"|"перезвонит"|"думает", "client_interest":"высокий"|"средний"|"низкий", "errors":[], "strengths":[], "loss_reason":null, "recommendation":"" }`);
+Менеджер: ${manager_name||'неизвестно'}, Клиент: ${contact_phone}
+Направление: ${direction==='in'?'входящий':'исходящий'} звонок
+ТРАНСКРИПЦИЯ: ${transcript.slice(0,4000)}
+Ответь ТОЛЬКО в JSON без markdown:
+{"score":5,"result":"продал","client_interest":"высокий","manager_name":"Имя","errors":["ошибка"],"strengths":["плюс"],"loss_reason":null,"recommendation":"совет"}`);
 
-    db.run(`INSERT OR REPLACE INTO calls (call_id, manager_name, lead_id, contact_phone, duration, direction, transcript, analysis, called_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [call_id, manager_name, lead_id, contact_phone, duration, direction, transcript, analysis, toSeconds(called_at)]
-    );
+    let mgr = manager_name || null;
+    try { const p = JSON.parse(analysis); if (!mgr && p.manager_name) mgr = p.manager_name; } catch(e) {}
+
+    await pool.query(`
+      INSERT INTO calls (call_id,manager_name,lead_id,contact_phone,duration,direction,transcript,analysis,called_at,file_url)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      ON CONFLICT (call_id) DO UPDATE SET transcript=$7,analysis=$8,manager_name=$2`,
+      [call_id,mgr,lead_id||null,contact_phone||'unknown',duration||0,direction||'out',
+       transcript,analysis,toSeconds(called_at),file_url||null]);
 
     let parsed = null;
     try { parsed = JSON.parse(analysis); } catch(e) {}
     res.json({ ok: true, analysis: parsed });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── API: SYNC CALLS ──────────────────────────────────────────────────────────
 app.post('/api/sync-calls', async (req, res) => {
   try {
     const date = req.body.date || new Date().toISOString().split('T')[0];
-    const syncResult = await syncCallsForDate(date);
-    res.json({ ok: true, ...syncResult });
+    const [year, month, day] = date.split('-');
+    const url = `${CALLS_BASE_URL}/${year}/${month}/${day}/`;
+    const html = (await axios.get(url, { timeout: 15000 })).data;
+    const matches = [...html.matchAll(/href="([^"]+\.wav)"/g)];
+    const files = matches.map(m=>m[1]).filter(f=>
+      !f.startsWith('?')&&!f.startsWith('/')&&!f.includes('__tmp__')&&
+      !f.endsWith('-in.wav')&&!f.endsWith('-out.wav'));
 
-    // Запускаем транскрипцию в фоне
-    processPendingCalls(20).then(n => console.log(`Processed ${n} calls`));
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+    let synced=0, skipped=0;
+    for (const filename of files) {
+      const parts = filename.replace('.wav','').split('-');
+      const direction = parts[0];
+      let phone=null, callId=null, calledAt=0;
+      for (let i=0;i<parts.length;i++) {
+        if (/^\d{8}$/.test(parts[i])) {
+          if (i+2<parts.length) callId=parts.slice(i+2).join('-');
+          if (i+1<parts.length && /^\d{6}$/.test(parts[i+1])) {
+            try {
+              const d=parts[i],t=parts[i+1];
+              calledAt=Math.floor(new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}T${t.slice(0,2)}:${t.slice(2,4)}:${t.slice(4,6)}+05:00`).getTime()/1000);
+            } catch(e){}
+          }
+          break;
+        }
+        if (parts[i].startsWith('+')||/^7\d{9,10}$/.test(parts[i])) phone=parts[i];
+      }
+      if (!callId) callId=filename;
+      const fileUrl=`${CALLS_BASE_URL}/${year}/${month}/${day}/${filename}`;
+      try {
+        const r = await pool.query(
+          `INSERT INTO calls (call_id,contact_phone,direction,file_url,called_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (call_id) DO NOTHING`,
+          [callId,phone||'unknown',direction,fileUrl,calledAt]);
+        if (r.rowCount>0) synced++; else skipped++;
+      } catch(e) { skipped++; }
+    }
+    res.json({ ok:true, total:files.length, synced, skipped });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// ─── API: ANALYZE ALL CONVERSATIONS ──────────────────────────────────────────
+// ─── API: ANALYZE ALL ─────────────────────────────────────────────────────────
 app.post('/api/analyze-all', async (req, res) => {
   try {
-    const conversations = await new Promise((resolve) => {
-      db.all(`SELECT * FROM conversations WHERE analysis IS NULL AND messages_count > 0 ORDER BY messages_count DESC LIMIT 50`,
-        (err, rows) => resolve(rows || []));
-    });
-
-    if (!conversations.length) return res.json({ ok: true, analyzed: 0, message: 'Все уже проанализированы' });
-    res.json({ ok: true, total: conversations.length, message: `Анализируем ${conversations.length} переписок...` });
-
-    (async () => {
-      for (const conv of conversations) {
+    const { rows } = await pool.query(
+      `SELECT * FROM conversations WHERE analysis IS NULL AND messages_count>0 ORDER BY messages_count DESC LIMIT 50`);
+    if (!rows.length) return res.json({ ok:true, analyzed:0, message:'Все уже проанализированы' });
+    res.json({ ok:true, total:rows.length, message:`Анализируем ${rows.length} переписок...` });
+    (async()=>{
+      for (const conv of rows) {
         try {
-          const messages = await new Promise((resolve) => {
-            db.all(`SELECT * FROM messages WHERE chat_id = ? ORDER BY timestamp ASC`, [conv.chat_id],
-              (err, rows) => resolve(rows || []));
-          });
-          if (!messages.length) continue;
-
-          const transcript = messages.map(m =>
-            `${m.direction === 'out' ? (m.manager_name || 'Менеджер') : 'Клиент'}: ${m.text}`
-          ).join('\n');
-
-          const managerFromMsgs = messages.find(m => m.direction === 'out' && m.manager_name)?.manager_name;
-          const managerName = conv.manager_name || managerFromMsgs || 'Неизвестно';
-
-          if (managerFromMsgs && !conv.manager_name) {
-            db.run(`UPDATE conversations SET manager_name = ? WHERE chat_id = ?`, [managerFromMsgs, conv.chat_id]);
-          }
-
+          const { rows: msgs } = await pool.query(
+            `SELECT * FROM messages WHERE chat_id=$1 ORDER BY timestamp ASC`,[conv.chat_id]);
+          if (!msgs.length) continue;
+          const transcript = msgs.map(m=>`${m.direction==='out'?(m.manager_name||'Менеджер'):'Клиент'}: ${m.text}`).join('\n');
+          const mgr = conv.manager_name || msgs.find(m=>m.direction==='out'&&m.manager_name)?.manager_name || 'Неизвестно';
           const analysis = await claudeAnalyze(`
 Ты — аудитор отдела продаж фитнес-клуба Invictus GO (Алматы).
-Менеджер: ${managerName}, Клиент: ${conv.contact_name}
+Менеджер: ${mgr}, Клиент: ${conv.contact_name}
 ПЕРЕПИСКА WhatsApp:
-${transcript.slice(0, 4000)}
+${transcript.slice(0,4000)}
 Ответь ТОЛЬКО в JSON без markdown:
-{
-  "score": число 1-10,
-  "result": "продал"|"не продал"|"перезвонит"|"думает",
-  "client_interest": "высокий"|"средний"|"низкий",
-  "errors": ["конкретная ошибка"],
-  "strengths": ["конкретная сильная сторона"],
-  "loss_reason": "причина или null",
-  "recommendation": "конкретный совет менеджеру ${managerName}"
-}`);
-
-          db.run(`UPDATE conversations SET analysis = ?, analyzed_at = CURRENT_TIMESTAMP WHERE chat_id = ?`,
-            [analysis, conv.chat_id]);
-
-          await new Promise(r => setTimeout(r, 500));
-        } catch(e) {
-          console.error('Analysis error:', conv.chat_id, e.message);
-        }
+{"score":5,"result":"продал","client_interest":"средний","errors":["ошибка"],"strengths":["плюс"],"loss_reason":null,"recommendation":"совет"}`);
+          await pool.query(`UPDATE conversations SET analysis=$1,analyzed_at=NOW() WHERE chat_id=$2`,[analysis,conv.chat_id]);
+          await new Promise(r=>setTimeout(r,500));
+        } catch(e) { console.error('Analysis error:',e.message); }
       }
-      console.log('Conversations analysis complete');
     })();
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
 // ─── API: AUDIT ───────────────────────────────────────────────────────────────
 app.get('/api/audit', async (req, res) => {
   try {
-    const { period = 'day', date } = req.query;
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const { period='day', date } = req.query;
+    const target = date || new Date().toISOString().split('T')[0];
     let dateFrom, dateTo;
-    if (period === 'day') {
-      dateFrom = targetDate; dateTo = targetDate;
-    } else {
-      const d = new Date(targetDate);
-      dateFrom = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
-      dateTo = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split('T')[0];
+    if (period==='day') { dateFrom=target; dateTo=target; }
+    else {
+      const d=new Date(target);
+      dateFrom=new Date(d.getFullYear(),d.getMonth(),1).toISOString().split('T')[0];
+      dateTo=new Date(d.getFullYear(),d.getMonth()+1,0).toISOString().split('T')[0];
     }
-    const tsFrom = Math.floor(new Date(dateFrom).getTime() / 1000);
-    const tsTo = Math.floor(new Date(dateTo + 'T23:59:59').getTime() / 1000);
+    const tsFrom=Math.floor(new Date(dateFrom).getTime()/1000);
+    const tsTo=Math.floor(new Date(dateTo+'T23:59:59').getTime()/1000);
 
-    let totalLeads = 0;
-    try {
-      const leadsData = await amoGet(`/leads?filter[created_at][from]=${tsFrom}&filter[created_at][to]=${tsTo}&limit=1`);
-      totalLeads = leadsData._total_items || 0;
-    } catch(e) {}
+    let totalLeads=0;
+    try { const d=await amoGet(`/leads?filter[created_at][from]=${tsFrom}&filter[created_at][to]=${tsTo}&limit=1`); totalLeads=d._total_items||0; } catch(e){}
 
-    const calls = await new Promise(r => db.all(
-      `SELECT * FROM calls WHERE called_at >= ? AND called_at <= ? ORDER BY called_at DESC`,
-      [tsFrom, tsTo], (e, rows) => r(rows || [])
-    ));
+    const { rows: calls } = await pool.query(`SELECT * FROM calls WHERE called_at>=$1 AND called_at<=$2 ORDER BY called_at DESC`,[tsFrom,tsTo]);
+    const { rows: conversations } = await pool.query(`SELECT * FROM conversations WHERE last_message_at>=$1 AND last_message_at<=$2 ORDER BY last_message_at DESC`,[tsFrom,tsTo]);
 
-    const conversations = await new Promise(r => db.all(
-      `SELECT * FROM conversations WHERE last_message_at >= ? AND last_message_at <= ? ORDER BY last_message_at DESC`,
-      [tsFrom, tsTo], (e, rows) => r(rows || [])
-    ));
-
-    const analyzedCalls = calls.filter(c => c.analysis);
-    let callAvgScore = 0;
+    const analyzedCalls = calls.filter(c=>c.analysis);
+    let avgScore=0;
     if (analyzedCalls.length) {
-      const scores = analyzedCalls.map(c => { try { return JSON.parse(c.analysis).score || 0; } catch(e) { return 0; } });
-      callAvgScore = (scores.reduce((a,b)=>a+b,0) / scores.length).toFixed(1);
+      const scores=analyzedCalls.map(c=>{try{return JSON.parse(c.analysis).score||0;}catch(e){return 0;}});
+      avgScore=(scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1);
     }
 
-    const report = {
+    res.json({
       period, dateFrom, dateTo,
       amo: { totalLeads },
-      calls: { total: calls.length, analyzed: analyzedCalls.length, avgScore: callAvgScore,
-        withTranscript: calls.filter(c => c.transcript).length },
-      conversations: { total: conversations.length, analyzed: conversations.filter(c => c.analysis).length },
-      recentCalls: calls.slice(0, 15).map(c => ({
-        id: c.call_id, manager: c.manager_name, phone: c.contact_phone,
-        duration: c.duration, direction: c.direction,
-        date: new Date(c.called_at * 1000).toLocaleString('ru-RU'),
-        hasTranscript: !!c.transcript,
-        analysis: c.analysis ? (() => { try { return JSON.parse(c.analysis); } catch(e) { return null; } })() : null
+      calls: { total:calls.length, analyzed:analyzedCalls.length, avgScore,
+               withTranscript:calls.filter(c=>c.transcript&&c.transcript!=='[мусор]').length },
+      conversations: { total:conversations.length, analyzed:conversations.filter(c=>c.analysis).length },
+      recentCalls: calls.slice(0,15).map(c=>({
+        id:c.call_id, manager:c.manager_name, phone:c.contact_phone,
+        duration:c.duration, direction:c.direction,
+        date:new Date(Number(c.called_at)*1000).toLocaleString('ru-RU'),
+        hasTranscript:!!c.transcript&&c.transcript!=='[мусор]',
+        analysis:c.analysis?(()=>{try{return JSON.parse(c.analysis);}catch(e){return null;}})():null
       })),
-      recentConversations: conversations.slice(0, 30).map(c => ({
-        ...c,
-        lastDate: c.last_message_at ? new Date(c.last_message_at * 1000).toLocaleString('ru-RU') : '—'
+      recentConversations: conversations.slice(0,30).map(c=>({
+        ...c, lastDate:c.last_message_at?new Date(Number(c.last_message_at)*1000).toLocaleString('ru-RU'):'—'
       }))
-    };
-
-    db.run(`INSERT INTO audits (period, date_from, date_to, report) VALUES (?, ?, ?, ?)`,
-      [period, dateFrom, dateTo, JSON.stringify(report)]);
-
-    res.json(report);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+    });
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
 // ─── API: MANAGER REPORT ──────────────────────────────────────────────────────
 app.get('/api/manager-report', async (req, res) => {
   try {
-    const conversations = await new Promise(r => db.all(
-      `SELECT * FROM conversations WHERE analysis IS NOT NULL`, (e, rows) => r(rows || [])
-    ));
-    const calls = await new Promise(r => db.all(
-      `SELECT * FROM calls WHERE analysis IS NOT NULL`, (e, rows) => r(rows || [])
-    ));
-
+    const { rows: convs } = await pool.query(`SELECT * FROM conversations WHERE analysis IS NOT NULL`);
+    const { rows: calls } = await pool.query(`SELECT * FROM calls WHERE analysis IS NOT NULL`);
     const managers = {};
-    const addToManager = (name, item, type) => {
-      if (!managers[name]) managers[name] = { name, convs:[], calls:[], scores:[], errors:[], strengths:[], recommendations:[] };
+    const add = (name, item, type) => {
+      if (!managers[name]) managers[name]={name,convs:[],calls:[],scores:[],errors:[],strengths:[],recommendations:[]};
       try {
-        const a = JSON.parse(type === 'conv' ? item.analysis : item.analysis);
-        managers[name][type === 'conv' ? 'convs' : 'calls'].push({ ...a });
+        const a=JSON.parse(item.analysis);
+        managers[name][type].push(a);
         if (a.score) managers[name].scores.push(a.score);
         if (a.errors) managers[name].errors.push(...a.errors);
         if (a.strengths) managers[name].strengths.push(...a.strengths);
         if (a.recommendation) managers[name].recommendations.push(a.recommendation);
-      } catch(e) {}
+      } catch(e){}
     };
-
-    conversations.forEach(c => addToManager(c.manager_name || 'Неизвестно', c, 'conv'));
-    calls.forEach(c => addToManager(c.manager_name || 'Неизвестно', c, 'call'));
-
-    const report = Object.values(managers).map(m => {
-      const avgScore = m.scores.length ? (m.scores.reduce((a,b)=>a+b,0)/m.scores.length).toFixed(1) : 0;
-      const all = [...m.convs, ...m.calls];
-      const errorCount = {};
-      m.errors.forEach(e => { errorCount[e] = (errorCount[e]||0)+1; });
-      const topErrors = Object.entries(errorCount).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([e])=>e);
-      const strCount = {};
-      m.strengths.forEach(s => { strCount[s] = (strCount[s]||0)+1; });
-      const topStrengths = Object.entries(strCount).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([s])=>s);
+    convs.forEach(c=>add(c.manager_name||'Неизвестно',c,'convs'));
+    calls.forEach(c=>add(c.manager_name||'Неизвестно',c,'calls'));
+    const report = Object.values(managers).map(m=>{
+      const all=[...m.convs,...m.calls];
+      const avg=m.scores.length?(m.scores.reduce((a,b)=>a+b,0)/m.scores.length).toFixed(1):0;
+      const ec={};m.errors.forEach(e=>ec[e]=(ec[e]||0)+1);
+      const sc={};m.strengths.forEach(s=>sc[s]=(sc[s]||0)+1);
       return {
-        name: m.name,
-        totalInteractions: all.length,
-        convs: m.convs.length,
-        calls: m.calls.length,
-        avgScore: Number(avgScore),
-        topErrors,
-        topStrengths,
-        lastRecommendation: m.recommendations[m.recommendations.length-1] || null,
-        results: {
-          sold: all.filter(x=>x.result==='продал').length,
-          lost: all.filter(x=>x.result==='не продал').length,
-          pending: all.filter(x=>['перезвонит','думает'].includes(x.result)).length,
+        name:m.name, totalInteractions:all.length, convs:m.convs.length, calls:m.calls.length,
+        avgScore:Number(avg),
+        topErrors:Object.entries(ec).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([e])=>e),
+        topStrengths:Object.entries(sc).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([s])=>s),
+        lastRecommendation:m.recommendations[m.recommendations.length-1]||null,
+        results:{
+          sold:all.filter(x=>x.result==='продал').length,
+          lost:all.filter(x=>x.result==='не продал').length,
+          pending:all.filter(x=>['перезвонит','думает'].includes(x.result)).length,
         }
       };
-    }).sort((a,b) => b.avgScore - a.avgScore);
-
-    res.json({ managers: report, totalConvs: conversations.length, totalCalls: calls.length });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+    }).sort((a,b)=>b.avgScore-a.avgScore);
+    res.json({ managers:report, totalConvs:convs.length, totalCalls:calls.length });
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
 // ─── API: STATS ───────────────────────────────────────────────────────────────
 app.get('/api/stats', async (req, res) => {
   try {
-    const [callsCount, convsCount, msgsCount, analyzedConvs, analyzedCalls, withTranscript] = await Promise.all([
-      new Promise(r => db.get('SELECT COUNT(*) as n FROM calls', (e,row)=>r(row?.n||0))),
-      new Promise(r => db.get('SELECT COUNT(*) as n FROM conversations', (e,row)=>r(row?.n||0))),
-      new Promise(r => db.get('SELECT COUNT(*) as n FROM messages', (e,row)=>r(row?.n||0))),
-      new Promise(r => db.get('SELECT COUNT(*) as n FROM conversations WHERE analysis IS NOT NULL', (e,row)=>r(row?.n||0))),
-      new Promise(r => db.get('SELECT COUNT(*) as n FROM calls WHERE analysis IS NOT NULL', (e,row)=>r(row?.n||0))),
-      new Promise(r => db.get('SELECT COUNT(*) as n FROM calls WHERE transcript IS NOT NULL', (e,row)=>r(row?.n||0))),
+    const [c1,c2,c3,c4,c5,c6] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM calls'),
+      pool.query('SELECT COUNT(*) FROM conversations'),
+      pool.query('SELECT COUNT(*) FROM messages'),
+      pool.query('SELECT COUNT(*) FROM conversations WHERE analysis IS NOT NULL'),
+      pool.query('SELECT COUNT(*) FROM calls WHERE analysis IS NOT NULL'),
+      pool.query("SELECT COUNT(*) FROM calls WHERE transcript IS NOT NULL AND transcript != '[мусор]'"),
     ]);
-    res.json({ callsCount, convsCount, msgsCount, analyzedConvs, analyzedCalls, withTranscript });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ─── API: PDF REPORT DATA ─────────────────────────────────────────────────────
-app.get('/api/pdf-report-data', async (req, res) => {
-  try {
-    const { date_from, date_to } = req.query;
-    const tsFrom = date_from ? Math.floor(new Date(date_from).getTime()/1000) : 0;
-    const tsTo   = date_to   ? Math.floor(new Date(date_to+'T23:59:59').getTime()/1000) : 9999999999;
-
-    const [callsTotal, callsAnalyzed, convsTotal, convsAnalyzed, callsRows, convsRows, statsRows] = await Promise.all([
-      new Promise(r => db.get(`SELECT COUNT(*) as n FROM calls WHERE called_at>=? AND called_at<=?`, [tsFrom,tsTo], (e,row)=>r(row?.n||0))),
-      new Promise(r => db.get(`SELECT COUNT(*) as n FROM calls WHERE analysis IS NOT NULL AND called_at>=? AND called_at<=?`, [tsFrom,tsTo], (e,row)=>r(row?.n||0))),
-      new Promise(r => db.get(`SELECT COUNT(*) as n FROM conversations WHERE last_message_at>=? AND last_message_at<=?`, [tsFrom,tsTo], (e,row)=>r(row?.n||0))),
-      new Promise(r => db.get(`SELECT COUNT(*) as n FROM conversations WHERE analysis IS NOT NULL AND last_message_at>=? AND last_message_at<=?`, [tsFrom,tsTo], (e,row)=>r(row?.n||0))),
-      new Promise(r => db.all(`SELECT * FROM calls WHERE analysis IS NOT NULL AND called_at>=? AND called_at<=?`, [tsFrom,tsTo], (e,rows)=>r(rows||[]))),
-      new Promise(r => db.all(`SELECT * FROM conversations WHERE analysis IS NOT NULL AND last_message_at>=? AND last_message_at<=?`, [tsFrom,tsTo], (e,rows)=>r(rows||[]))),
-      new Promise(r => db.all(`SELECT manager_name, COUNT(*) as calls, AVG(json_extract(analysis,'$.score')) as avg_score FROM calls WHERE analysis IS NOT NULL AND called_at>=? AND called_at<=? GROUP BY manager_name ORDER BY avg_score DESC`, [tsFrom,tsTo], (e,rows)=>r(rows||[]))),
-    ]);
-
-    // Агрегируем по менеджерам
-    const mgrs = {};
-    const addMgr = (name, a, type) => {
-      if (!mgrs[name]) mgrs[name] = { name, calls:0, convs:0, scores:[], sold:0, lost:0, pending:0, errors:[], strengths:[] };
-      try {
-        const p = JSON.parse(a);
-        if (type==='call') mgrs[name].calls++; else mgrs[name].convs++;
-        if (p.score) mgrs[name].scores.push(p.score);
-        if (p.result==='продал') mgrs[name].sold++;
-        else if (p.result==='не продал') mgrs[name].lost++;
-        else mgrs[name].pending++;
-        if (p.errors) mgrs[name].errors.push(...p.errors);
-        if (p.strengths) mgrs[name].strengths.push(...p.strengths);
-      } catch(e) {}
-    };
-    callsRows.forEach(c => addMgr(c.manager_name||'Неизвестно', c.analysis, 'call'));
-    convsRows.forEach(c => addMgr(c.manager_name||'Неизвестно', c.analysis, 'conv'));
-
-    const managers = Object.values(mgrs).map(m => {
-      const avg = m.scores.length ? (m.scores.reduce((a,b)=>a+b,0)/m.scores.length).toFixed(1) : 0;
-      const ec = {}; m.errors.forEach(e=>{ec[e]=(ec[e]||0)+1;});
-      const topErrors = Object.entries(ec).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([e])=>e);
-      const sc = {}; m.strengths.forEach(s=>{sc[s]=(sc[s]||0)+1;});
-      const topStrengths = Object.entries(sc).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([s])=>s);
-      const all = m.sold+m.lost+m.pending;
-      return { ...m, avgScore: Number(avg), conv: all?Math.round(m.sold/all*100):0, topErrors, topStrengths };
-    }).sort((a,b)=>b.avgScore-a.avgScore);
-
-    // Общие метрики
-    const allAnalyzed = [...callsRows, ...convsRows];
-    const scores = allAnalyzed.map(x=>{try{return JSON.parse(x.analysis).score||0}catch(e){return 0}}).filter(s=>s>0);
-    const avgTeam = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1) : 0;
-    const results = allAnalyzed.map(x=>{try{return JSON.parse(x.analysis).result}catch(e){return null}}).filter(Boolean);
-    const sold = results.filter(r=>r==='продал').length;
-    const conv = results.length ? Math.round(sold/results.length*100) : 0;
-
     res.json({
-      period: { from: date_from||'начало', to: date_to||'сегодня' },
-      calls: { total: callsTotal, analyzed: callsAnalyzed },
-      convs: { total: convsTotal, analyzed: convsAnalyzed },
-      team: { avgScore: avgTeam, conv, sold, lost: results.filter(r=>r==='не продал').length, pending: results.filter(r=>['перезвонит','думает'].includes(r)).length },
-      managers,
-      generatedAt: new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' })
+      callsCount:parseInt(c1.rows[0].count), convsCount:parseInt(c2.rows[0].count),
+      msgsCount:parseInt(c3.rows[0].count), analyzedConvs:parseInt(c4.rows[0].count),
+      analyzedCalls:parseInt(c5.rows[0].count), withTranscript:parseInt(c6.rows[0].count),
     });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
 app.get('/api/debug/conversations', async (req, res) => {
-  const rows = await new Promise(r => db.all(
-    'SELECT chat_id, contact_name, manager_name, last_message_at, messages_count, analysis, created_at FROM conversations ORDER BY created_at DESC LIMIT 50',
-    (e, rows) => r(rows || [])
-  ));
+  const { rows } = await pool.query(
+    'SELECT chat_id,contact_name,manager_name,last_message_at,messages_count,analysis,created_at FROM conversations ORDER BY created_at DESC LIMIT 50');
   res.json(rows);
 });
 
-// ─── API: FULL REPORT DATA (для PDF) ─────────────────────────────────────────
-app.get('/api/report-data', async (req, res) => {
-  try {
-    const { dateFrom, dateTo } = req.query;
-    let tsFrom = 0, tsTo = Math.floor(Date.now() / 1000);
-    if (dateFrom) tsFrom = Math.floor(new Date(dateFrom).getTime() / 1000);
-    if (dateTo)   tsTo   = Math.floor(new Date(dateTo + 'T23:59:59').getTime() / 1000);
-
-    const [calls, conversations, analyzedCalls, analyzedConvs] = await Promise.all([
-      new Promise(r => db.all(`SELECT call_id, manager_name, contact_phone, direction, duration, analysis, called_at FROM calls WHERE called_at >= ? AND called_at <= ? ORDER BY called_at DESC`, [tsFrom, tsTo], (e,rows) => r(rows||[]))),
-      new Promise(r => db.all(`SELECT chat_id, manager_name, contact_name, contact_phone, messages_count, analysis, last_message_at FROM conversations WHERE last_message_at >= ? AND last_message_at <= ? ORDER BY last_message_at DESC`, [tsFrom, tsTo], (e,rows) => r(rows||[]))),
-      new Promise(r => db.all(`SELECT manager_name, analysis FROM calls WHERE analysis IS NOT NULL AND called_at >= ? AND called_at <= ?`, [tsFrom, tsTo], (e,rows) => r(rows||[]))),
-      new Promise(r => db.all(`SELECT manager_name, analysis FROM conversations WHERE analysis IS NOT NULL AND last_message_at >= ? AND last_message_at <= ?`, [tsFrom, tsTo], (e,rows) => r(rows||[]))),
-    ]);
-
-    // Агрегация по менеджерам
-    const managers = {};
-    const addItem = (name, analysis, type) => {
-      if (!name) name = 'Неизвестно';
-      if (!managers[name]) managers[name] = { name, calls:0, convs:0, scores:[], errors:[], strengths:[], results:{sold:0,lost:0,pending:0} };
-      managers[name][type === 'call' ? 'calls' : 'convs']++;
-      try {
-        const a = JSON.parse(analysis);
-        if (a.score) managers[name].scores.push(a.score);
-        if (a.errors) managers[name].errors.push(...a.errors);
-        if (a.strengths) managers[name].strengths.push(...a.strengths);
-        if (a.result === 'продал') managers[name].results.sold++;
-        else if (a.result === 'не продал') managers[name].results.lost++;
-        else managers[name].results.pending++;
-      } catch(e) {}
-    };
-
-    analyzedCalls.forEach(c => addItem(c.manager_name, c.analysis, 'call'));
-    analyzedConvs.forEach(c => addItem(c.manager_name, c.analysis, 'conv'));
-
-    const managerList = Object.values(managers).map(m => {
-      const avg = m.scores.length ? (m.scores.reduce((a,b)=>a+b,0)/m.scores.length).toFixed(1) : 0;
-      const errCount = {}; m.errors.forEach(e => errCount[e]=(errCount[e]||0)+1);
-      const strCount = {}; m.strengths.forEach(s => strCount[s]=(strCount[s]||0)+1);
-      return {
-        name: m.name, calls: m.calls, convs: m.convs,
-        avgScore: Number(avg),
-        topErrors: Object.entries(errCount).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([e])=>e),
-        topStrengths: Object.entries(strCount).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([s])=>s),
-        results: m.results,
-      };
-    }).sort((a,b) => b.avgScore - a.avgScore);
-
-    // Общая статистика
-    const allAnalyzed = [...analyzedCalls, ...analyzedConvs];
-    const avgTeamScore = allAnalyzed.length
-      ? (allAnalyzed.reduce((s,x) => { try { return s + (JSON.parse(x.analysis).score||0); } catch(e){ return s; } }, 0) / allAnalyzed.length).toFixed(1)
-      : 0;
-
-    res.json({
-      period: { dateFrom: dateFrom || 'все время', dateTo: dateTo || new Date().toISOString().split('T')[0] },
-      calls: { total: calls.length, analyzed: analyzedCalls.length, withTranscript: calls.filter(c=>c.analysis).length },
-      conversations: { total: conversations.length, analyzed: analyzedConvs.length },
-      avgTeamScore: Number(avgTeamScore),
-      managers: managerList,
-      generatedAt: new Date().toLocaleString('ru-RU'),
-    });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.listen(PORT, () => console.log(`🚀 Invictus Audit на порту ${PORT}`));
+app.listen(PORT, ()=>console.log(`Invictus Audit port ${PORT}`));
