@@ -345,4 +345,106 @@ app.get('/api/debug/conversations', async (req, res) => {
   res.json(rows);
 });
 
+// ─── API: FULL EXPORT (все данные за период) ──────────────────────────────────
+app.get('/api/export', async (req, res) => {
+  try {
+    const { date_from, date_to } = req.query;
+    let callsQuery, convsQuery, params;
+
+    if (date_from && date_to) {
+      const tsFrom = Math.floor(new Date(date_from).getTime()/1000);
+      const tsTo   = Math.floor(new Date(date_to+'T23:59:59').getTime()/1000);
+      callsQuery = `SELECT * FROM calls WHERE called_at>=$1 AND called_at<=$2 AND analysis IS NOT NULL ORDER BY called_at DESC`;
+      convsQuery = `SELECT * FROM conversations WHERE last_message_at>=$1 AND last_message_at<=$2 AND analysis IS NOT NULL ORDER BY last_message_at DESC`;
+      params = [tsFrom, tsTo];
+    } else {
+      callsQuery = `SELECT * FROM calls WHERE analysis IS NOT NULL ORDER BY called_at DESC`;
+      convsQuery = `SELECT * FROM conversations WHERE analysis IS NOT NULL ORDER BY last_message_at DESC`;
+      params = [];
+    }
+
+    const { rows: calls } = await pool.query(callsQuery, params);
+    const { rows: convs } = await pool.query(convsQuery, params);
+
+    // Группируем по менеджерам
+    const managers = {};
+    const addItem = (name, item, type) => {
+      if (!name) name = 'Неизвестно';
+      if (!managers[name]) managers[name] = { name, calls:[], convs:[] };
+      try {
+        const a = JSON.parse(item.analysis);
+        managers[name][type].push({ ...item, parsed: a });
+      } catch(e) {}
+    };
+
+    calls.forEach(c => addItem(c.manager_name, c, 'calls'));
+    convs.forEach(c => addItem(c.manager_name, c, 'convs'));
+
+    // Считаем итоги по каждому менеджеру
+    const report = Object.values(managers).map(m => {
+      const allItems = [...m.calls.map(c=>c.parsed), ...m.convs.map(c=>c.parsed)];
+      const scores = allItems.map(a=>a.score||0).filter(s=>s>0);
+      const avgScore = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1) : 0;
+      const sold    = allItems.filter(a=>a.result==='продал').length;
+      const lost    = allItems.filter(a=>a.result==='не продал').length;
+      const pending = allItems.filter(a=>['перезвонит','думает'].includes(a.result)).length;
+
+      // Топ ошибок
+      const errCount = {};
+      allItems.forEach(a => (a.errors||[]).forEach(e => errCount[e]=(errCount[e]||0)+1));
+      const topErrors = Object.entries(errCount).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([e,n])=>({text:e,count:n}));
+
+      // Топ сильных сторон
+      const strCount = {};
+      allItems.forEach(a => (a.strengths||[]).forEach(s => strCount[s]=(strCount[s]||0)+1));
+      const topStrengths = Object.entries(strCount).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([s,n])=>({text:s,count:n}));
+
+      return {
+        name: m.name,
+        callsCount: m.calls.length,
+        convsCount: m.convs.length,
+        totalCount: allItems.length,
+        avgScore: Number(avgScore),
+        sold, lost, pending,
+        convRate: allItems.length ? Math.round(sold/allItems.length*100) : 0,
+        topErrors, topStrengths,
+        calls: m.calls.map(c => ({
+          call_id: c.call_id,
+          phone: c.contact_phone,
+          direction: c.direction,
+          called_at: c.called_at,
+          transcript: c.transcript,
+          score: c.parsed?.score,
+          result: c.parsed?.result,
+          errors: c.parsed?.errors,
+          strengths: c.parsed?.strengths,
+          recommendation: c.parsed?.recommendation,
+          loss_reason: c.parsed?.loss_reason,
+        })),
+        convs: m.convs.map(c => ({
+          chat_id: c.chat_id,
+          contact: c.contact_name || c.contact_phone,
+          messages_count: c.messages_count,
+          last_message_at: c.last_message_at,
+          score: c.parsed?.score,
+          result: c.parsed?.result,
+          errors: c.parsed?.errors,
+          strengths: c.parsed?.strengths,
+          recommendation: c.parsed?.recommendation,
+          loss_reason: c.parsed?.loss_reason,
+        })),
+      };
+    }).sort((a,b) => b.avgScore - a.avgScore);
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      date_from: date_from || 'все время',
+      date_to: date_to || 'все время',
+      total_calls: calls.length,
+      total_convs: convs.length,
+      managers: report,
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.listen(PORT, ()=>console.log(`Invictus Audit port ${PORT}`));
