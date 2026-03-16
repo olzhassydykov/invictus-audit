@@ -106,6 +106,7 @@ td { padding:11px 14px; color:#e0e0e0; vertical-align:middle; }
       <button class="btn btn-primary" onclick="runAudit()" id="auditBtn">🔍 Аудит</button>
       <button class="btn btn-orange" onclick="syncCalls()" id="syncBtn">📞 Синхр. звонки</button>
       <button class="btn btn-success" onclick="analyzeAll()" id="analyzeBtn">⚡ Анализировать всё</button>
+      <button class="btn" style="background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff" onclick="downloadPDF()" id="pdfBtn">📄 Скачать PDF отчёт</button>
     </div>
     <div id="alertBox" style="display:none"></div>
     <div class="loading" id="auditLoading" style="display:none"><div class="spinner"></div>Анализируем...</div>
@@ -148,6 +149,8 @@ td { padding:11px 14px; color:#e0e0e0; vertical-align:middle; }
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 const base = location.origin;
 document.getElementById('wazzupUrl').textContent = base + '/webhook/wazzup';
@@ -184,7 +187,213 @@ function showAlert(msg,type='info'){
   setTimeout(()=>el.style.display='none',6000);
 }
 
-async function syncCalls() {
+async function downloadPDF() {
+  const btn = document.getElementById('pdfBtn');
+  btn.disabled = true; btn.textContent = '⏳ Генерация...';
+  try {
+    const dateFrom = document.getElementById('dateInput').value;
+    // Период: если день — один день, если месяц — весь месяц
+    let dateTo = dateFrom;
+    if (period === 'month') {
+      const d = new Date(dateFrom);
+      dateTo = new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().split('T')[0];
+    }
+    const r = await fetch(`/api/pdf-report-data?date_from=${dateFrom}&date_to=${dateTo}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    generatePDF(d);
+  } catch(e) { showAlert('Ошибка PDF: '+e.message); }
+  finally { btn.disabled=false; btn.textContent='📄 Скачать PDF отчёт'; }
+}
+
+function generatePDF(d) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const W = 210, M = 15, CW = W - M*2;
+  let y = 0;
+
+  const addPage = () => { doc.addPage(); y = 20; };
+  const checkY = (need=20) => { if (y + need > 270) addPage(); };
+
+  // Цвета
+  const navy  = [30, 58, 95];
+  const green = [0, 180, 140];
+  const red   = [220, 60, 60];
+  const gold  = [200, 150, 0];
+  const gray  = [100, 100, 120];
+  const lightgray = [240, 242, 248];
+
+  // ── ШАПКА ──────────────────────────────────────────────────────────────
+  doc.setFillColor(...navy);
+  doc.rect(0, 0, W, 40, 'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(24); doc.setFont('helvetica','bold');
+  doc.text('INVICTUS GO', M, 18);
+  doc.setFontSize(13); doc.setFont('helvetica','normal');
+  doc.text('Аудит отдела продаж', M, 27);
+  doc.setFontSize(10); doc.setTextColor(180,200,230);
+  doc.text(`Период: ${d.period.from} — ${d.period.to}`, M, 35);
+  doc.text(`Сформировано: ${d.generatedAt}`, W-M, 35, {align:'right'});
+  y = 52;
+
+  // ── KPI КАРТОЧКИ ────────────────────────────────────────────────────────
+  doc.setTextColor(...navy);
+  doc.setFontSize(13); doc.setFont('helvetica','bold');
+  doc.text('Сводные показатели', M, y); y += 7;
+
+  const kpis = [
+    { label: 'Звонков всего',      value: d.calls.total,    sub: `проан: ${d.calls.analyzed}`,   color: navy },
+    { label: 'Переписок всего',    value: d.convs.total,    sub: `проан: ${d.convs.analyzed}`,   color: [46,95,159] },
+    { label: 'Ср. рейтинг команды', value: `${d.team.avgScore}/10`, sub: 'из 10',               color: d.team.avgScore>=7?green:d.team.avgScore>=5?gold:red },
+    { label: 'Конверсия',          value: `${d.team.conv}%`, sub: `продано: ${d.team.sold}`,    color: d.team.conv>=40?green:d.team.conv>=20?gold:red },
+  ];
+  const cw = CW/4 - 2;
+  kpis.forEach((k, i) => {
+    const x = M + i*(cw+2.7);
+    doc.setFillColor(...lightgray);
+    doc.roundedRect(x, y, cw, 22, 2, 2, 'F');
+    doc.setDrawColor(...k.color);
+    doc.setLineWidth(0.8);
+    doc.line(x, y, x, y+22);
+    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(...gray);
+    doc.text(k.label, x+3, y+6);
+    doc.setFontSize(18); doc.setFont('helvetica','bold'); doc.setTextColor(...k.color);
+    doc.text(String(k.value), x+3, y+16);
+    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(...gray);
+    doc.text(k.sub, x+3, y+21);
+  });
+  y += 30;
+
+  // Итоги по результатам
+  doc.setFillColor(...lightgray);
+  doc.roundedRect(M, y, CW, 14, 2, 2, 'F');
+  const cols3 = [
+    { label: '✅ Продано',       value: d.team.sold,    color: green },
+    { label: '❌ Не продано',    value: d.team.lost,    color: red },
+    { label: '⏳ В процессе',   value: d.team.pending, color: gold },
+  ];
+  cols3.forEach((c, i) => {
+    const x = M + i*(CW/3);
+    doc.setFontSize(8); doc.setTextColor(...gray); doc.setFont('helvetica','normal');
+    doc.text(c.label, x+5, y+5);
+    doc.setFontSize(16); doc.setFont('helvetica','bold'); doc.setTextColor(...c.color);
+    doc.text(String(c.value), x+5, y+12);
+  });
+  y += 22;
+
+  // ── ТАБЛИЦА МЕНЕДЖЕРОВ ──────────────────────────────────────────────────
+  checkY(30);
+  doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(...navy);
+  doc.text('Рейтинг менеджеров', M, y); y += 7;
+
+  // Заголовок таблицы
+  const cols = [
+    {label:'#',       w:8},
+    {label:'Менеджер',w:32},
+    {label:'Рейтинг', w:20},
+    {label:'Звонков', w:20},
+    {label:'Перепис.',w:20},
+    {label:'Продал',  w:18},
+    {label:'Конв.',   w:16},
+    {label:'Ошибка #1',w:46},
+  ];
+  let cx = M;
+  doc.setFillColor(...navy);
+  doc.rect(M, y, CW, 8, 'F');
+  doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+  cols.forEach(c => {
+    doc.text(c.label, cx+1.5, y+5.5);
+    cx += c.w;
+  });
+  y += 8;
+
+  // Строки менеджеров
+  d.managers.forEach((m, i) => {
+    checkY(10);
+    const rowH = 9;
+    if (i%2===0) { doc.setFillColor(...lightgray); doc.rect(M, y, CW, rowH, 'F'); }
+    cx = M;
+    const scoreColor = m.avgScore>=7?green:m.avgScore>=5?gold:red;
+    const convColor  = m.conv>=40?green:m.conv>=20?gold:red;
+    const vals = [
+      {v:String(i+1),         color:gray,       bold:false},
+      {v:m.name||'—',         color:navy,       bold:true},
+      {v:`${m.avgScore}/10`,  color:scoreColor, bold:true},
+      {v:String(m.calls),     color:navy,       bold:false},
+      {v:String(m.convs),     color:navy,       bold:false},
+      {v:String(m.sold),      color:green,      bold:true},
+      {v:`${m.conv}%`,        color:convColor,  bold:true},
+      {v:(m.topErrors[0]||'—').slice(0,35), color:red, bold:false},
+    ];
+    vals.forEach((v, j) => {
+      doc.setFontSize(j===1?8:8);
+      doc.setFont('helvetica', v.bold?'bold':'normal');
+      doc.setTextColor(...v.color);
+      doc.text(String(v.v), cx+1.5, y+6);
+      cx += cols[j].w;
+    });
+    y += rowH;
+  });
+  y += 8;
+
+  // ── ДЕТАЛИ ПО МЕНЕДЖЕРАМ ───────────────────────────────────────────────
+  if (d.managers.length > 0) {
+    addPage();
+    doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(...navy);
+    doc.text('Детальный анализ менеджеров', M, y); y += 10;
+
+    d.managers.forEach((m, i) => {
+      checkY(45);
+      // Карточка менеджера
+      const scoreColor = m.avgScore>=7?green:m.avgScore>=5?gold:red;
+      doc.setFillColor(...lightgray);
+      doc.roundedRect(M, y, CW, 40, 2, 2, 'F');
+      doc.setDrawColor(...scoreColor); doc.setLineWidth(1.5);
+      doc.line(M, y, M, y+40);
+
+      // Имя и рейтинг
+      doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(...navy);
+      doc.text(`${i+1}. ${m.name}`, M+4, y+8);
+      doc.setFontSize(18); doc.setFont('helvetica','bold'); doc.setTextColor(...scoreColor);
+      doc.text(`${m.avgScore}/10`, W-M-20, y+9);
+
+      // Мини-статистика
+      doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(...gray);
+      doc.text(`Звонков: ${m.calls}  |  Переписок: ${m.convs}  |  Продано: ${m.sold}  |  Конверсия: ${m.conv}%`, M+4, y+15);
+
+      // Ошибки
+      doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(...red);
+      doc.text('Ошибки:', M+4, y+22);
+      doc.setFont('helvetica','normal'); doc.setTextColor(100,30,30);
+      const errText = m.topErrors.slice(0,2).join('  •  ') || '—';
+      doc.text(errText.slice(0,90), M+20, y+22);
+
+      // Сильные стороны
+      doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(...green);
+      doc.text('Сильные:', M+4, y+29);
+      doc.setFont('helvetica','normal'); doc.setTextColor(0,80,60);
+      const strText = m.topStrengths.slice(0,2).join('  •  ') || '—';
+      doc.text(strText.slice(0,90), M+22, y+29);
+
+      y += 46;
+    });
+  }
+
+  // ── ФУТЕР ──────────────────────────────────────────────────────────────
+  const pageCount = doc.getNumberOfPages();
+  for (let i=1; i<=pageCount; i++) {
+    doc.setPage(i);
+    doc.setFillColor(...navy);
+    doc.rect(0, 287, W, 10, 'F');
+    doc.setFontSize(7); doc.setTextColor(180,200,230);
+    doc.text(`Invictus GO · AI-аудит отдела продаж · ${d.generatedAt}`, M, 293);
+    doc.text(`${i} / ${pageCount}`, W-M, 293, {align:'right'});
+  }
+
+  doc.save(`invictus-audit-${d.period.from}-${d.period.to}.pdf`);
+  showAlert('✅ PDF отчёт скачан!', 'success');
+}
+
   const date = document.getElementById('dateInput').value;
   const btn = document.getElementById('syncBtn');
   btn.disabled=true; btn.textContent='⏳ Синхронизация...';
@@ -337,6 +546,246 @@ function renderManagers(d) {
         }).join('')}</tbody>
       </table>
     </div>`;
+}
+
+async function downloadPDF() {
+  const btn = document.getElementById('pdfBtn');
+  btn.disabled = true; btn.textContent = '⏳ Генерация...';
+
+  try {
+    const date = document.getElementById('dateInput').value;
+    let dateFrom, dateTo;
+    if (period === 'day') { dateFrom = date; dateTo = date; }
+    else {
+      const d = new Date(date);
+      dateFrom = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+      dateTo = new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().split('T')[0];
+    }
+
+    const r = await fetch(`/api/report-data?dateFrom=${dateFrom}&dateTo=${dateTo}`);
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const W = 210, M = 15, CW = W - M*2;
+    let y = 20;
+
+    const addPage = () => { doc.addPage(); y = 20; };
+    const checkY = (need=20) => { if (y + need > 280) addPage(); };
+
+    // ── ШАПКА ────────────────────────────────────────────────────────────────
+    doc.setFillColor(30, 58, 95);
+    doc.rect(0, 0, W, 36, 'F');
+    doc.setTextColor(255,255,255);
+    doc.setFont('helvetica','bold'); doc.setFontSize(22);
+    doc.text('INVICTUS GO', M, 15);
+    doc.setFont('helvetica','normal'); doc.setFontSize(11);
+    doc.text('Аудит отдела продаж', M, 23);
+    doc.setFontSize(9);
+    const periodLabel = dateFrom === dateTo ? dateFrom : `${dateFrom} — ${dateTo}`;
+    doc.text(`Период: ${periodLabel}  |  Сформирован: ${data.generatedAt}`, M, 31);
+    y = 46;
+
+    // ── KPI БЛОК ─────────────────────────────────────────────────────────────
+    const kpis = [
+      { label: 'Звонков всего', value: data.calls.total, sub: `проан.: ${data.calls.analyzed}`, color: [255,107,53] },
+      { label: 'Переписок всего', value: data.conversations.total, sub: `проан.: ${data.conversations.analyzed}`, color: [108,99,255] },
+      { label: 'Ср. рейтинг команды', value: data.avgTeamScore + '/10', sub: 'по звонкам и перепискам', color: [0,212,170] },
+      { label: 'Менеджеров', value: data.managers.length, sub: 'в анализе', color: [255,170,0] },
+    ];
+    const kw = (CW - 9) / 4;
+    kpis.forEach((k, i) => {
+      const x = M + i*(kw+3);
+      doc.setFillColor(245,247,252);
+      doc.roundedRect(x, y, kw, 22, 2, 2, 'F');
+      doc.setDrawColor(...k.color); doc.setLineWidth(0.8);
+      doc.line(x+2, y+2, x+2, y+20);
+      doc.setTextColor(100,100,120); doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+      doc.text(k.label.toUpperCase(), x+6, y+7);
+      doc.setTextColor(...k.color); doc.setFont('helvetica','bold'); doc.setFontSize(16);
+      doc.text(String(k.value), x+6, y+15);
+      doc.setTextColor(150,150,170); doc.setFont('helvetica','normal'); doc.setFontSize(7);
+      doc.text(k.sub, x+6, y+20);
+    });
+    y += 30;
+
+    // ── ЗВОНКИ ────────────────────────────────────────────────────────────────
+    doc.setTextColor(30,58,95); doc.setFont('helvetica','bold'); doc.setFontSize(13);
+    doc.text('1. Анализ звонков', M, y); y += 8;
+
+    // Статистика звонков
+    const callPct = data.calls.total ? Math.round(data.calls.analyzed/data.calls.total*100) : 0;
+    doc.setFillColor(255,245,240);
+    doc.roundedRect(M, y, CW, 18, 2, 2, 'F');
+    doc.setTextColor(80,80,100); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.text(`Всего записей: ${data.calls.total}`, M+5, y+7);
+    doc.text(`Транскрибировано: ${data.calls.analyzed}`, M+55, y+7);
+    doc.text(`Охват анализа: ${callPct}%`, M+115, y+7);
+    // progress bar
+    doc.setFillColor(220,220,230); doc.roundedRect(M+5, y+11, CW-10, 4, 1, 1, 'F');
+    if (callPct > 0) {
+      doc.setFillColor(255,107,53);
+      doc.roundedRect(M+5, y+11, (CW-10)*callPct/100, 4, 1, 1, 'F');
+    }
+    y += 24;
+
+    // ── ПЕРЕПИСКИ ─────────────────────────────────────────────────────────────
+    checkY(30);
+    doc.setTextColor(30,58,95); doc.setFont('helvetica','bold'); doc.setFontSize(13);
+    doc.text('2. Анализ переписок WhatsApp', M, y); y += 8;
+
+    const convPct = data.conversations.total ? Math.round(data.conversations.analyzed/data.conversations.total*100) : 0;
+    doc.setFillColor(240,245,255);
+    doc.roundedRect(M, y, CW, 18, 2, 2, 'F');
+    doc.setTextColor(80,80,100); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.text(`Всего переписок: ${data.conversations.total}`, M+5, y+7);
+    doc.text(`Проанализировано: ${data.conversations.analyzed}`, M+65, y+7);
+    doc.text(`Охват: ${convPct}%`, M+135, y+7);
+    doc.setFillColor(220,220,230); doc.roundedRect(M+5, y+11, CW-10, 4, 1, 1, 'F');
+    if (convPct > 0) {
+      doc.setFillColor(108,99,255);
+      doc.roundedRect(M+5, y+11, (CW-10)*convPct/100, 4, 1, 1, 'F');
+    }
+    y += 28;
+
+    // ── ТАБЛИЦА МЕНЕДЖЕРОВ ────────────────────────────────────────────────────
+    if (data.managers.length > 0) {
+      checkY(20);
+      doc.setTextColor(30,58,95); doc.setFont('helvetica','bold'); doc.setFontSize(13);
+      doc.text('3. Рейтинг менеджеров', M, y); y += 8;
+
+      // Заголовок таблицы
+      const cols = [
+        { label: '#', w: 8 },
+        { label: 'Менеджер', w: 30 },
+        { label: 'Рейтинг', w: 18 },
+        { label: 'Звонки', w: 16 },
+        { label: 'Перепис.', w: 18 },
+        { label: 'Продал', w: 16 },
+        { label: 'Не прод.', w: 18 },
+        { label: 'Конверс.', w: 18 },
+        { label: 'Топ ошибка', w: 38 },
+      ];
+      const rowH = 8;
+
+      doc.setFillColor(30,58,95);
+      doc.rect(M, y, CW, rowH, 'F');
+      doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+      let cx = M+1;
+      cols.forEach(c => { doc.text(c.label, cx, y+5.5); cx += c.w; });
+      y += rowH;
+
+      data.managers.forEach((m, i) => {
+        checkY(rowH+2);
+        const all = m.results.sold + m.results.lost + m.results.pending;
+        const conv = all ? Math.round(m.results.sold/all*100) : 0;
+        const sc = m.avgScore;
+
+        doc.setFillColor(i%2===0 ? 248 : 255, i%2===0 ? 249 : 255, i%2===0 ? 252 : 255);
+        doc.rect(M, y, CW, rowH, 'F');
+        doc.setDrawColor(220,220,230); doc.setLineWidth(0.2);
+        doc.line(M, y+rowH, M+CW, y+rowH);
+
+        // Score color
+        const sColor = sc >= 7 ? [0,150,100] : sc >= 5 ? [176,112,0] : [180,0,0];
+
+        doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+        cx = M+1;
+        doc.setTextColor(100,100,120); doc.text(String(i+1), cx, y+5.5); cx += cols[0].w;
+        doc.setTextColor(30,30,50); doc.setFont('helvetica','bold');
+        doc.text(m.name.slice(0,16), cx, y+5.5); cx += cols[1].w;
+        doc.setTextColor(...sColor);
+        doc.text(`${sc}/10`, cx, y+5.5); cx += cols[2].w;
+        doc.setTextColor(60,60,90); doc.setFont('helvetica','normal');
+        doc.text(String(m.calls), cx, y+5.5); cx += cols[3].w;
+        doc.text(String(m.convs), cx, y+5.5); cx += cols[4].w;
+        doc.setTextColor(0,140,80);
+        doc.text(String(m.results.sold), cx, y+5.5); cx += cols[5].w;
+        doc.setTextColor(180,0,0);
+        doc.text(String(m.results.lost), cx, y+5.5); cx += cols[6].w;
+        doc.setTextColor(108,99,255); doc.setFont('helvetica','bold');
+        doc.text(`${conv}%`, cx, y+5.5); cx += cols[7].w;
+        doc.setTextColor(60,60,90); doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
+        doc.text((m.topErrors[0]||'—').slice(0,30), cx, y+5.5);
+        y += rowH;
+      });
+      y += 10;
+    }
+
+    // ── ДЕТАЛИ ПО КАЖДОМУ МЕНЕДЖЕРУ ──────────────────────────────────────────
+    if (data.managers.length > 0) {
+      checkY(20);
+      doc.setTextColor(30,58,95); doc.setFont('helvetica','bold'); doc.setFontSize(13);
+      doc.text('4. Детальный профиль менеджеров', M, y); y += 10;
+
+      data.managers.forEach((m) => {
+        checkY(40);
+        const all = m.results.sold + m.results.lost + m.results.pending;
+        const conv = all ? Math.round(m.results.sold/all*100) : 0;
+        const sc = m.avgScore;
+        const sColor = sc >= 7 ? [0,150,100] : sc >= 5 ? [176,112,0] : [180,0,0];
+
+        // Имя менеджера
+        doc.setFillColor(...sColor.map(c=>Math.min(255,c+180)));
+        doc.roundedRect(M, y, CW, 9, 1.5, 1.5, 'F');
+        doc.setFillColor(...sColor); doc.rect(M, y, 3, 9, 'F');
+        doc.setTextColor(30,30,50); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+        doc.text(m.name, M+7, y+6);
+        doc.setTextColor(...sColor);
+        doc.text(`${sc}/10`, M+60, y+6);
+        doc.setTextColor(80,80,100); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+        doc.text(`Конверсия: ${conv}% | Звонки: ${m.calls} | Переписок: ${m.convs}`, M+80, y+6);
+        y += 12;
+
+        // Ошибки
+        if (m.topErrors.length) {
+          doc.setTextColor(180,0,0); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+          doc.text('Типичные ошибки:', M+3, y); y += 5;
+          m.topErrors.forEach(e => {
+            checkY(6);
+            doc.setTextColor(80,40,40); doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+            const lines = doc.splitTextToSize(`• ${e}`, CW-8);
+            doc.text(lines, M+6, y);
+            y += lines.length * 4.5;
+          });
+        }
+
+        // Сильные стороны
+        if (m.topStrengths.length) {
+          checkY(10);
+          doc.setTextColor(0,120,70); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+          doc.text('Сильные стороны:', M+3, y); y += 5;
+          m.topStrengths.forEach(s => {
+            checkY(6);
+            doc.setTextColor(30,70,40); doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+            doc.text(`+ ${s}`, M+6, y); y += 5;
+          });
+        }
+        y += 6;
+      });
+    }
+
+    // ── ФУТЕР ────────────────────────────────────────────────────────────────
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setDrawColor(200,200,215); doc.setLineWidth(0.3);
+      doc.line(M, 287, W-M, 287);
+      doc.setTextColor(150,150,170); doc.setFont('helvetica','normal'); doc.setFontSize(7);
+      doc.text(`Invictus GO · AI-аудит отдела продаж · ${data.generatedAt}`, M, 292);
+      doc.text(`${i} / ${pageCount}`, W-M, 292, { align: 'right' });
+    }
+
+    const filename = `invictus_audit_${dateFrom}${dateFrom!==dateTo?'_'+dateTo:''}.pdf`;
+    doc.save(filename);
+    showAlert(`✅ PDF сохранён: ${filename}`, 'success');
+
+  } catch(e) {
+    showAlert('Ошибка генерации PDF: ' + e.message, 'warning');
+  } finally {
+    btn.disabled = false; btn.textContent = '📄 Скачать PDF отчёт';
+  }
 }
 </script>
 </body>
