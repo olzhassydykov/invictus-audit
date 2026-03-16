@@ -539,12 +539,145 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
+// ─── API: PDF REPORT DATA ─────────────────────────────────────────────────────
+app.get('/api/pdf-report-data', async (req, res) => {
+  try {
+    const { date_from, date_to } = req.query;
+    const tsFrom = date_from ? Math.floor(new Date(date_from).getTime()/1000) : 0;
+    const tsTo   = date_to   ? Math.floor(new Date(date_to+'T23:59:59').getTime()/1000) : 9999999999;
+
+    const [callsTotal, callsAnalyzed, convsTotal, convsAnalyzed, callsRows, convsRows, statsRows] = await Promise.all([
+      new Promise(r => db.get(`SELECT COUNT(*) as n FROM calls WHERE called_at>=? AND called_at<=?`, [tsFrom,tsTo], (e,row)=>r(row?.n||0))),
+      new Promise(r => db.get(`SELECT COUNT(*) as n FROM calls WHERE analysis IS NOT NULL AND called_at>=? AND called_at<=?`, [tsFrom,tsTo], (e,row)=>r(row?.n||0))),
+      new Promise(r => db.get(`SELECT COUNT(*) as n FROM conversations WHERE last_message_at>=? AND last_message_at<=?`, [tsFrom,tsTo], (e,row)=>r(row?.n||0))),
+      new Promise(r => db.get(`SELECT COUNT(*) as n FROM conversations WHERE analysis IS NOT NULL AND last_message_at>=? AND last_message_at<=?`, [tsFrom,tsTo], (e,row)=>r(row?.n||0))),
+      new Promise(r => db.all(`SELECT * FROM calls WHERE analysis IS NOT NULL AND called_at>=? AND called_at<=?`, [tsFrom,tsTo], (e,rows)=>r(rows||[]))),
+      new Promise(r => db.all(`SELECT * FROM conversations WHERE analysis IS NOT NULL AND last_message_at>=? AND last_message_at<=?`, [tsFrom,tsTo], (e,rows)=>r(rows||[]))),
+      new Promise(r => db.all(`SELECT manager_name, COUNT(*) as calls, AVG(json_extract(analysis,'$.score')) as avg_score FROM calls WHERE analysis IS NOT NULL AND called_at>=? AND called_at<=? GROUP BY manager_name ORDER BY avg_score DESC`, [tsFrom,tsTo], (e,rows)=>r(rows||[]))),
+    ]);
+
+    // Агрегируем по менеджерам
+    const mgrs = {};
+    const addMgr = (name, a, type) => {
+      if (!mgrs[name]) mgrs[name] = { name, calls:0, convs:0, scores:[], sold:0, lost:0, pending:0, errors:[], strengths:[] };
+      try {
+        const p = JSON.parse(a);
+        if (type==='call') mgrs[name].calls++; else mgrs[name].convs++;
+        if (p.score) mgrs[name].scores.push(p.score);
+        if (p.result==='продал') mgrs[name].sold++;
+        else if (p.result==='не продал') mgrs[name].lost++;
+        else mgrs[name].pending++;
+        if (p.errors) mgrs[name].errors.push(...p.errors);
+        if (p.strengths) mgrs[name].strengths.push(...p.strengths);
+      } catch(e) {}
+    };
+    callsRows.forEach(c => addMgr(c.manager_name||'Неизвестно', c.analysis, 'call'));
+    convsRows.forEach(c => addMgr(c.manager_name||'Неизвестно', c.analysis, 'conv'));
+
+    const managers = Object.values(mgrs).map(m => {
+      const avg = m.scores.length ? (m.scores.reduce((a,b)=>a+b,0)/m.scores.length).toFixed(1) : 0;
+      const ec = {}; m.errors.forEach(e=>{ec[e]=(ec[e]||0)+1;});
+      const topErrors = Object.entries(ec).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([e])=>e);
+      const sc = {}; m.strengths.forEach(s=>{sc[s]=(sc[s]||0)+1;});
+      const topStrengths = Object.entries(sc).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([s])=>s);
+      const all = m.sold+m.lost+m.pending;
+      return { ...m, avgScore: Number(avg), conv: all?Math.round(m.sold/all*100):0, topErrors, topStrengths };
+    }).sort((a,b)=>b.avgScore-a.avgScore);
+
+    // Общие метрики
+    const allAnalyzed = [...callsRows, ...convsRows];
+    const scores = allAnalyzed.map(x=>{try{return JSON.parse(x.analysis).score||0}catch(e){return 0}}).filter(s=>s>0);
+    const avgTeam = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1) : 0;
+    const results = allAnalyzed.map(x=>{try{return JSON.parse(x.analysis).result}catch(e){return null}}).filter(Boolean);
+    const sold = results.filter(r=>r==='продал').length;
+    const conv = results.length ? Math.round(sold/results.length*100) : 0;
+
+    res.json({
+      period: { from: date_from||'начало', to: date_to||'сегодня' },
+      calls: { total: callsTotal, analyzed: callsAnalyzed },
+      convs: { total: convsTotal, analyzed: convsAnalyzed },
+      team: { avgScore: avgTeam, conv, sold, lost: results.filter(r=>r==='не продал').length, pending: results.filter(r=>['перезвонит','думает'].includes(r)).length },
+      managers,
+      generatedAt: new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' })
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/debug/conversations', async (req, res) => {
   const rows = await new Promise(r => db.all(
     'SELECT chat_id, contact_name, manager_name, last_message_at, messages_count, analysis, created_at FROM conversations ORDER BY created_at DESC LIMIT 50',
     (e, rows) => r(rows || [])
   ));
   res.json(rows);
+});
+
+// ─── API: FULL REPORT DATA (для PDF) ─────────────────────────────────────────
+app.get('/api/report-data', async (req, res) => {
+  try {
+    const { dateFrom, dateTo } = req.query;
+    let tsFrom = 0, tsTo = Math.floor(Date.now() / 1000);
+    if (dateFrom) tsFrom = Math.floor(new Date(dateFrom).getTime() / 1000);
+    if (dateTo)   tsTo   = Math.floor(new Date(dateTo + 'T23:59:59').getTime() / 1000);
+
+    const [calls, conversations, analyzedCalls, analyzedConvs] = await Promise.all([
+      new Promise(r => db.all(`SELECT call_id, manager_name, contact_phone, direction, duration, analysis, called_at FROM calls WHERE called_at >= ? AND called_at <= ? ORDER BY called_at DESC`, [tsFrom, tsTo], (e,rows) => r(rows||[]))),
+      new Promise(r => db.all(`SELECT chat_id, manager_name, contact_name, contact_phone, messages_count, analysis, last_message_at FROM conversations WHERE last_message_at >= ? AND last_message_at <= ? ORDER BY last_message_at DESC`, [tsFrom, tsTo], (e,rows) => r(rows||[]))),
+      new Promise(r => db.all(`SELECT manager_name, analysis FROM calls WHERE analysis IS NOT NULL AND called_at >= ? AND called_at <= ?`, [tsFrom, tsTo], (e,rows) => r(rows||[]))),
+      new Promise(r => db.all(`SELECT manager_name, analysis FROM conversations WHERE analysis IS NOT NULL AND last_message_at >= ? AND last_message_at <= ?`, [tsFrom, tsTo], (e,rows) => r(rows||[]))),
+    ]);
+
+    // Агрегация по менеджерам
+    const managers = {};
+    const addItem = (name, analysis, type) => {
+      if (!name) name = 'Неизвестно';
+      if (!managers[name]) managers[name] = { name, calls:0, convs:0, scores:[], errors:[], strengths:[], results:{sold:0,lost:0,pending:0} };
+      managers[name][type === 'call' ? 'calls' : 'convs']++;
+      try {
+        const a = JSON.parse(analysis);
+        if (a.score) managers[name].scores.push(a.score);
+        if (a.errors) managers[name].errors.push(...a.errors);
+        if (a.strengths) managers[name].strengths.push(...a.strengths);
+        if (a.result === 'продал') managers[name].results.sold++;
+        else if (a.result === 'не продал') managers[name].results.lost++;
+        else managers[name].results.pending++;
+      } catch(e) {}
+    };
+
+    analyzedCalls.forEach(c => addItem(c.manager_name, c.analysis, 'call'));
+    analyzedConvs.forEach(c => addItem(c.manager_name, c.analysis, 'conv'));
+
+    const managerList = Object.values(managers).map(m => {
+      const avg = m.scores.length ? (m.scores.reduce((a,b)=>a+b,0)/m.scores.length).toFixed(1) : 0;
+      const errCount = {}; m.errors.forEach(e => errCount[e]=(errCount[e]||0)+1);
+      const strCount = {}; m.strengths.forEach(s => strCount[s]=(strCount[s]||0)+1);
+      return {
+        name: m.name, calls: m.calls, convs: m.convs,
+        avgScore: Number(avg),
+        topErrors: Object.entries(errCount).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([e])=>e),
+        topStrengths: Object.entries(strCount).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([s])=>s),
+        results: m.results,
+      };
+    }).sort((a,b) => b.avgScore - a.avgScore);
+
+    // Общая статистика
+    const allAnalyzed = [...analyzedCalls, ...analyzedConvs];
+    const avgTeamScore = allAnalyzed.length
+      ? (allAnalyzed.reduce((s,x) => { try { return s + (JSON.parse(x.analysis).score||0); } catch(e){ return s; } }, 0) / allAnalyzed.length).toFixed(1)
+      : 0;
+
+    res.json({
+      period: { dateFrom: dateFrom || 'все время', dateTo: dateTo || new Date().toISOString().split('T')[0] },
+      calls: { total: calls.length, analyzed: analyzedCalls.length, withTranscript: calls.filter(c=>c.analysis).length },
+      conversations: { total: conversations.length, analyzed: analyzedConvs.length },
+      avgTeamScore: Number(avgTeamScore),
+      managers: managerList,
+      generatedAt: new Date().toLocaleString('ru-RU'),
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.listen(PORT, () => console.log(`🚀 Invictus Audit на порту ${PORT}`));
