@@ -122,39 +122,30 @@ app.post('/webhook/wazzup', async (req, res) => {
 
 // ─── WEBHOOK: CALL (от MacBook агента) ───────────────────────────────────────
 app.post('/webhook/call', async (req, res) => {
+  // Просто сохраняем транскрипцию — анализ делается отдельно через /api/analyze-all
+  // Это исключает таймауты Anthropic API при массовой загрузке звонков
   try {
-    const { call_id, manager_name, lead_id, contact_phone, duration, direction, transcript, called_at, file_url } = req.body;
+    const { call_id, contact_phone, direction, transcript, called_at, file_url } = req.body;
     if (!transcript || !call_id) return res.status(400).json({ error: 'Missing fields' });
+
+    const ts = toSeconds(called_at);
 
     if (isJunk(transcript)) {
       await pool.query(
         `INSERT INTO calls (call_id,contact_phone,direction,transcript,called_at,file_url)
          VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (call_id) DO NOTHING`,
-        [call_id, contact_phone||'unknown', direction||'out', '[мусор]', toSeconds(called_at), file_url||null]);
+        [call_id, contact_phone||'unknown', direction||'out', '[мусор]', ts, file_url||null]);
       return res.json({ ok: true, skipped: true });
     }
 
-    const analysis = await claudeAnalyze(`
-Ты — аудитор отдела продаж фитнес-клуба Invictus GO (Алматы).
-Менеджер: ${manager_name||'неизвестно'}, Клиент: ${contact_phone}
-Направление: ${direction==='in'?'входящий':'исходящий'} звонок
-ТРАНСКРИПЦИЯ: ${transcript.slice(0,4000)}
-Ответь ТОЛЬКО в JSON без markdown:
-{"score":5,"result":"продал","client_interest":"высокий","manager_name":"Имя","errors":["ошибка"],"strengths":["плюс"],"loss_reason":null,"recommendation":"совет"}`);
-
-    let mgr = manager_name || null;
-    try { const p = JSON.parse(analysis); if (!mgr && p.manager_name) mgr = p.manager_name; } catch(e) {}
-
+    // Сохраняем транскрипцию без анализа — анализ придёт позже
     await pool.query(`
-      INSERT INTO calls (call_id,manager_name,lead_id,contact_phone,duration,direction,transcript,analysis,called_at,file_url)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-      ON CONFLICT (call_id) DO UPDATE SET transcript=$7,analysis=$8,manager_name=$2`,
-      [call_id,mgr,lead_id||null,contact_phone||'unknown',duration||0,direction||'out',
-       transcript,analysis,toSeconds(called_at),file_url||null]);
+      INSERT INTO calls (call_id,contact_phone,direction,transcript,called_at,file_url)
+      VALUES ($1,$2,$3,$4,$5,$6)
+      ON CONFLICT (call_id) DO UPDATE SET transcript=$3,called_at=$4,file_url=$5`,
+      [call_id, contact_phone||'unknown', direction||'out', transcript, ts, file_url||null]);
 
-    let parsed = null;
-    try { parsed = JSON.parse(analysis); } catch(e) {}
-    res.json({ ok: true, analysis: parsed });
+    res.json({ ok: true, saved: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -204,12 +195,20 @@ app.post('/api/sync-calls', async (req, res) => {
 // ─── API: ANALYZE ALL ─────────────────────────────────────────────────────────
 app.post('/api/analyze-all', async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT * FROM conversations WHERE analysis IS NULL AND messages_count>0 ORDER BY messages_count DESC LIMIT 50`);
-    if (!rows.length) return res.json({ ok:true, analyzed:0, message:'Все уже проанализированы' });
-    res.json({ ok:true, total:rows.length, message:`Анализируем ${rows.length} переписок...` });
+    // Берём непроанализированные переписки И звонки (по 25 каждого типа = 50 итого)
+    const { rows: convRows } = await pool.query(
+      `SELECT * FROM conversations WHERE analysis IS NULL AND messages_count>0 ORDER BY messages_count DESC LIMIT 25`);
+    const { rows: callRows } = await pool.query(
+      `SELECT * FROM calls WHERE analysis IS NULL AND transcript IS NOT NULL AND transcript != '[мусор]' ORDER BY called_at DESC LIMIT 25`);
+
+    const total = convRows.length + callRows.length;
+    if (!total) return res.json({ ok:true, total:0, message:'Все уже проанализированы' });
+
+    res.json({ ok:true, total, message:`Анализируем ${convRows.length} переписок + ${callRows.length} звонков...` });
+
     (async()=>{
-      for (const conv of rows) {
+      // Анализируем переписки
+      for (const conv of convRows) {
         try {
           const { rows: msgs } = await pool.query(
             `SELECT * FROM messages WHERE chat_id=$1 ORDER BY timestamp ASC`,[conv.chat_id]);
@@ -224,8 +223,28 @@ ${transcript.slice(0,4000)}
 Ответь ТОЛЬКО в JSON без markdown:
 {"score":5,"result":"продал","client_interest":"средний","errors":["ошибка"],"strengths":["плюс"],"loss_reason":null,"recommendation":"совет"}`);
           await pool.query(`UPDATE conversations SET analysis=$1,analyzed_at=NOW() WHERE chat_id=$2`,[analysis,conv.chat_id]);
-          await new Promise(r=>setTimeout(r,500));
-        } catch(e) { console.error('Analysis error:',e.message); }
+          await new Promise(r=>setTimeout(r,300));
+        } catch(e) { console.error('Conv analysis error:',e.message); }
+      }
+
+      // Анализируем звонки
+      for (const call of callRows) {
+        try {
+          const direction = call.direction==='in' ? 'входящий' : 'исходящий';
+          const analysis = await claudeAnalyze(`
+Ты — аудитор отдела продаж фитнес-клуба Invictus GO (Алматы).
+Тип: ${direction} звонок. Клиент: ${call.contact_phone}
+ТРАНСКРИПЦИЯ:
+${(call.transcript||'').slice(0,4000)}
+Ответь ТОЛЬКО в JSON без markdown:
+{"score":5,"result":"не продал","manager_name":"Имя менеджера из транскрипции","client_interest":"средний","errors":["ошибка"],"strengths":["плюс"],"loss_reason":null,"recommendation":"совет"}`);
+          let mgr = call.manager_name;
+          try { const p=JSON.parse(analysis); if(!mgr&&p.manager_name) mgr=p.manager_name; } catch(e){}
+          await pool.query(
+            `UPDATE calls SET analysis=$1,manager_name=COALESCE(manager_name,$2) WHERE call_id=$3`,
+            [analysis, mgr, call.call_id]);
+          await new Promise(r=>setTimeout(r,300));
+        } catch(e) { console.error('Call analysis error:',e.message); }
       }
     })();
   } catch(e) { res.status(500).json({ error:e.message }); }
@@ -444,6 +463,24 @@ app.get('/api/export', async (req, res) => {
       total_convs: convs.length,
       managers: report,
     });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── API: ЛУЧШИЙ И ХУДШИЙ ЗВОНОК ──────────────────────────────────────────────
+app.get('/api/best-worst-calls', async (req, res) => {
+  try {
+    const { rows: best } = await pool.query(
+      `SELECT call_id, contact_phone, direction, manager_name, called_at, transcript, analysis
+       FROM calls WHERE analysis IS NOT NULL AND transcript IS NOT NULL
+       ORDER BY (analysis::json->>'score')::float DESC NULLS LAST LIMIT 1`
+    );
+    const { rows: worst } = await pool.query(
+      `SELECT call_id, contact_phone, direction, manager_name, called_at, transcript, analysis
+       FROM calls WHERE analysis IS NOT NULL AND transcript IS NOT NULL
+       AND length(transcript) > 500
+       ORDER BY (analysis::json->>'score')::float ASC NULLS LAST LIMIT 1`
+    );
+    res.json({ best: best[0] || null, worst: worst[0] || null });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
