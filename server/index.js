@@ -128,7 +128,7 @@ app.post('/webhook/call', async (req, res) => {
     const { call_id, contact_phone, direction, transcript, called_at, file_url } = req.body;
     if (!transcript || !call_id) return res.status(400).json({ error: 'Missing fields' });
 
-    const ts = toSeconds(called_at);
+    const ts = toSeconds(called_at ? Number(called_at) : null);
 
     if (isJunk(transcript)) {
       await pool.query(
