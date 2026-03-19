@@ -142,7 +142,7 @@ app.post('/webhook/call', async (req, res) => {
     await pool.query(`
       INSERT INTO calls (call_id,contact_phone,direction,transcript,called_at,file_url)
       VALUES ($1,$2,$3,$4,$5,$6)
-      ON CONFLICT (call_id) DO UPDATE SET transcript=$3,called_at=$4,file_url=$5`,
+      ON CONFLICT (call_id) DO UPDATE SET transcript=$4,called_at=$5,file_url=$6`,
       [call_id, contact_phone||'unknown', direction||'out', transcript, ts, file_url||null]);
 
     res.json({ ok: true, saved: true });
