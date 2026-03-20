@@ -195,11 +195,31 @@ app.post('/api/sync-calls', async (req, res) => {
 // ─── API: ANALYZE ALL ─────────────────────────────────────────────────────────
 app.post('/api/analyze-all', async (req, res) => {
   try {
-    // Берём непроанализированные переписки И звонки (по 25 каждого типа = 50 итого)
-    const { rows: convRows } = await pool.query(
-      `SELECT * FROM conversations WHERE analysis IS NULL AND messages_count>0 ORDER BY messages_count DESC LIMIT 25`);
-    const { rows: callRows } = await pool.query(
-      `SELECT * FROM calls WHERE analysis IS NULL AND transcript IS NOT NULL AND transcript != '[мусор]' ORDER BY called_at DESC LIMIT 25`);
+    // Приоритизируем дату если передана, иначе берём самые свежие
+    const targetDate = (req.body && req.body.date) || req.query.date || null;
+    let convRows, callRows;
+    if (targetDate) {
+      const tsFrom = Math.floor(new Date(targetDate).getTime()/1000);
+      const tsTo   = Math.floor(new Date(targetDate+'T23:59:59').getTime()/1000);
+      const { rows: cr } = await pool.query(
+        `SELECT * FROM conversations WHERE analysis IS NULL AND messages_count>0
+          AND last_message_at>= AND last_message_at<=
+          ORDER BY last_message_at DESC LIMIT 25`, [tsFrom, tsTo]);
+      const { rows: lr } = await pool.query(
+        `SELECT * FROM calls WHERE analysis IS NULL AND transcript IS NOT NULL AND transcript != '[мусор]'
+          AND called_at>= AND called_at<=
+          ORDER BY called_at DESC LIMIT 25`, [tsFrom, tsTo]);
+      // Если за эту дату уже всё — берём любые непроанализированные
+      if (!cr.length && !lr.length) {
+        const { rows: cr2 } = await pool.query(`SELECT * FROM conversations WHERE analysis IS NULL AND messages_count>0 ORDER BY last_message_at DESC LIMIT 25`);
+        const { rows: lr2 } = await pool.query(`SELECT * FROM calls WHERE analysis IS NULL AND transcript IS NOT NULL AND transcript != '[мусор]' ORDER BY called_at DESC LIMIT 25`);
+        convRows = cr2; callRows = lr2;
+      } else { convRows = cr; callRows = lr; }
+    } else {
+      const { rows: cr } = await pool.query(`SELECT * FROM conversations WHERE analysis IS NULL AND messages_count>0 ORDER BY last_message_at DESC LIMIT 25`);
+      const { rows: lr } = await pool.query(`SELECT * FROM calls WHERE analysis IS NULL AND transcript IS NOT NULL AND transcript != '[мусор]' ORDER BY called_at DESC LIMIT 25`);
+      convRows = cr; callRows = lr;
+    }
 
     const total = convRows.length + callRows.length;
     if (!total) return res.json({ ok:true, total:0, message:'Все уже проанализированы' });
