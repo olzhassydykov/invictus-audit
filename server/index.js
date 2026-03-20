@@ -202,13 +202,9 @@ app.post('/api/analyze-all', async (req, res) => {
       const tsFrom = Math.floor(new Date(targetDate).getTime()/1000);
       const tsTo   = Math.floor(new Date(targetDate+'T23:59:59').getTime()/1000);
       const { rows: cr } = await pool.query(
-        `SELECT * FROM conversations WHERE analysis IS NULL AND messages_count>0
-          AND last_message_at>= AND last_message_at<=
-          ORDER BY last_message_at DESC LIMIT 25`, [tsFrom, tsTo]);
+        `SELECT * FROM conversations WHERE analysis IS NULL AND messages_count>0 AND last_message_at>=$1 AND last_message_at<=$2 ORDER BY last_message_at DESC LIMIT 25`, [tsFrom, tsTo]);
       const { rows: lr } = await pool.query(
-        `SELECT * FROM calls WHERE analysis IS NULL AND transcript IS NOT NULL AND transcript != '[мусор]'
-          AND called_at>= AND called_at<=
-          ORDER BY called_at DESC LIMIT 25`, [tsFrom, tsTo]);
+        `SELECT * FROM calls WHERE analysis IS NULL AND transcript IS NOT NULL AND transcript != '[мусор]' AND called_at>=$1 AND called_at<=$2 ORDER BY called_at DESC LIMIT 25`, [tsFrom, tsTo]);
       // Если за эту дату уже всё — берём любые непроанализированные
       if (!cr.length && !lr.length) {
         const { rows: cr2 } = await pool.query(`SELECT * FROM conversations WHERE analysis IS NULL AND messages_count>0 ORDER BY last_message_at DESC LIMIT 25`);
