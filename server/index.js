@@ -81,7 +81,7 @@ async function amoGet(p) {
 
 async function claudeAnalyze(prompt) {
   const res = await axios.post('https://api.anthropic.com/v1/messages', {
-    model: 'claude-sonnet-4-20250514', max_tokens: 1000,
+    model: 'claude-3-5-sonnet-20241022', max_tokens: 1000,
     messages: [{ role: 'user', content: prompt }]
   }, {
     headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
