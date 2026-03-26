@@ -80,14 +80,20 @@ async function amoGet(p) {
 }
 
 async function claudeAnalyze(prompt) {
-  const res = await axios.post('https://api.anthropic.com/v1/messages', {
-    model: 'claude-3-5-sonnet-20241022', max_tokens: 1000,
-    messages: [{ role: 'user', content: prompt }]
-  }, {
-    headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-    timeout: 30000
-  });
-  return res.data.content[0].text;
+  try {
+    const res = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-3-5-sonnet-20241022', max_tokens: 1000,
+      messages: [{ role: 'user', content: String(prompt).slice(0, 8000) }]
+    }, {
+      headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      timeout: 60000
+    });
+    return res.data.content[0].text;
+  } catch(e) {
+    const detail = e.response ? JSON.stringify(e.response.data) : e.message;
+    console.error('Anthropic error:', detail);
+    throw e;
+  }
 }
 
 // ─── WAZZUP WEBHOOK ───────────────────────────────────────────────────────────
