@@ -220,8 +220,10 @@ app.post('/api/analyze-all', async (req, res) => {
     const total = convRows.length + callRows.length;
     if (!total) return res.json({ ok:true, total:0, message:'Все уже проанализированы' });
 
-    // Анализируем синхронно чтобы не было дублей при частых вызовах
-    // Анализируем переписки
+    res.json({ ok:true, total, message:`Анализируем ${convRows.length} переписок + ${callRows.length} звонков...` });
+
+    (async()=>{
+      // Анализируем переписки
       for (const conv of convRows) {
         try {
           const { rows: msgs } = await pool.query(
@@ -260,7 +262,7 @@ ${(call.transcript||'').slice(0,4000)}
           await new Promise(r=>setTimeout(r,300));
         } catch(e) { console.error('Call analysis error:',e.message); }
       }
-    res.json({ ok:true, total, message:`Проанализировано: ${convRows.length} переписок + ${callRows.length} звонков` });
+    })();
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
