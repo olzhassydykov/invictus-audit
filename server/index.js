@@ -88,7 +88,8 @@ async function claudeAnalyze(prompt) {
       headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
       timeout: 60000
     });
-    return res.data.content[0].text;
+    const raw = res.data.content[0].text;
+  return raw.replace(/^```json\s*/,'').replace(/^```\s*/,'').replace(/\s*```$/,'').trim();
   } catch(e) {
     const detail = e.response ? JSON.stringify(e.response.data) : e.message;
     console.error('Anthropic error:', detail);
@@ -358,6 +359,16 @@ app.get('/api/manager-report', async (req, res) => {
       };
     }).sort((a,b)=>b.avgScore-a.avgScore);
     res.json({ managers:report, totalConvs:convs.length, totalCalls:calls.length });
+  } catch(e) { res.status(500).json({ error:e.message }); }
+});
+
+
+// ─── API: RESET BROKEN ANALYSES ─────────────────────────────────────────────
+app.post('/api/reset-broken', async (req, res) => {
+  try {
+    const r1 = await pool.query("UPDATE conversations SET analysis=NULL, analyzed_at=NULL WHERE analysis LIKE '%```%'");
+    const r2 = await pool.query("UPDATE calls SET analysis=NULL WHERE analysis LIKE '%```%'");
+    res.json({ ok:true, convs_reset: r1.rowCount, calls_reset: r2.rowCount });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
